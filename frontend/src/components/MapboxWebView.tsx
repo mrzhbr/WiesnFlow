@@ -22,13 +22,12 @@ interface MapboxWebViewProps {
 }
 
 export interface Marker {
-    id: string;
-    name: string;
-    coordinates: [number, number];
-    type: 'entrance' | 'ubahn';
-    lines?: string[];
+  id: string;
+  name: string;
+  coordinates: [number, number];
+  type: "entrance" | "ubahn";
+  lines?: string[];
 }
-
 
 export interface RouteIndicator {
   id: string;
@@ -45,18 +44,30 @@ export interface MapboxWebViewRef {
   flyTo: (center: [number, number], zoom?: number) => void;
   updateTileData: (tiles: Record<string, number>) => void;
   addMarkers: (markers: any[]) => void;
-  updateMyPosition: (position: { longitude: number; latitude: number; name: string } | null) => void;
-  showAssembleMarkers: (centerPoint: { longitude: number; latitude: number }, finalPoint: { longitude: number; latitude: number }) => void;
+  addFriendMarkers: (friends: any[]) => void;
+  updateMyPosition: (
+    position: { longitude: number; latitude: number; name: string } | null
+  ) => void;
+  highlightMarker: (markerId: string) => void;
+  showAssembleMarkers: (
+    centerPoint: { longitude: number; latitude: number },
+    finalPoint: { longitude: number; latitude: number }
+  ) => void;
   hideAssembleMarkers: () => void;
-  showRoute: (origin: { longitude: number; latitude: number }, destination: { longitude: number; latitude: number }) => void;
+  showRoute: (
+    origin: { longitude: number; latitude: number },
+    destination: { longitude: number; latitude: number }
+  ) => void;
   hideRoute: () => void;
   updateMarkers: (markers: any[]) => void;
   addFriendMarkers: (friends: any[]) => void;
   highlightMarker: (markerId: string) => void;
   updateRouteIndicators: (indicators: RouteIndicator[]) => void;
-  updateUserLocation: (latitude: number | null, longitude: number | null) => void;
+  updateUserLocation: (
+    latitude: number | null,
+    longitude: number | null
+  ) => void;
 }
-
 
 export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
   (
@@ -96,21 +107,21 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
     useImperativeHandle(ref, () => ({
       flyTo: (center, zoom) => {
         postMessage({
-            type: "flyTo",
-            center,
-            zoom: zoom ?? initialZoom,
+          type: "flyTo",
+          center,
+          zoom: zoom ?? initialZoom,
         });
       },
       updateTileData: (tiles) => {
         postMessage({
-            type: "updateTileData",
-            tiles,
+          type: "updateTileData",
+          tiles,
         });
       },
       addMarkers: (markers) => {
         postMessage({
-            type: "addMarkers",
-            markers,
+          type: "addMarkers",
+          markers,
         });
       },
       updateMarkers: (markers) => {
@@ -123,20 +134,20 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
       },
       highlightMarker: (markerId) => {
         postMessage({
-            type: "highlightMarker",
-            markerId,
+          type: "highlightMarker",
+          markerId,
         });
       },
       addFriendMarkers: (friends) => {
         postMessage({
-            type: "addFriendMarkers",
-            friends,
+          type: "addFriendMarkers",
+          friends,
         });
       },
       updateMyPosition: (position) => {
         postMessage({
-            type: "updateMyPosition",
-            position,
+          type: "updateMyPosition",
+          position,
         });
       },
       showAssembleMarkers: (centerPoint, finalPoint) => {
@@ -206,8 +217,8 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
 
     useEffect(() => {
       postMessage({
-          type: "setTileInteractions",
-          enabled: tileInteractionsEnabled,
+        type: "setTileInteractions",
+        enabled: tileInteractionsEnabled,
       });
     }, [tileInteractionsEnabled]);
 
@@ -221,7 +232,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
             webViewRef.current?.postMessage(msg);
           });
           messageQueue.current = [];
-          
+
           // Send initial style
           webViewRef.current?.postMessage(
             JSON.stringify({
@@ -493,46 +504,51 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                     id: 'oktoberfest-heatmap',
                     type: 'heatmap',
                     source: 'oktoberfest-points',
-                    maxzoom: 16,
+                    maxzoom: 18,
                     paint: {
-                        // Increase the heatmap weight based on density state
+                        // Weight based on normalized density (0-1 where 1 is max)
+                        // Exponential curve with more steps creates heterogeneous appearance
                         'heatmap-weight': [
                             'interpolate',
-                            ['linear'],
+                            ['exponential', 1.8],
                             ['coalesce', ['feature-state', 'density'], 0],
                             0, 0,
-                            1, 0.2,
-                            10, 1
+                            0.05, 0.3,  // Very low density visible
+                            0.15, 0.5,  // Low-medium has distinct weight
+                            0.4, 0.75,
+                            1, 1
                         ],
-                        // Heatmap intensity multiplier
-                        'heatmap-intensity': [
-                            'interpolate',
-                            ['linear'],
-                            ['zoom'],
-                            12, 1,
-                            16, 3
-                        ],
-                        // Color ramp from transparent to green to yellow to red
+                        // Higher intensity for more aggressive colors at low end
+                        'heatmap-intensity': 2.4,
+                        // Very distinct colors for low densities to create heterogeneous appearance
                         'heatmap-color': [
                             'interpolate',
                             ['linear'],
                             ['heatmap-density'],
-                            0, 'rgba(33,102,172,0)',
-                            0.2, 'rgb(103,169,207)',
-                            0.4, '#22c55e', // Green
-                            0.6, '#eab308', // Yellow
-                            0.8, '#ef4444', // Red
-                            1, '#b91c1c'   // Dark Red
+                            0, 'rgba(59,130,246,0)',   // Transparent at 0
+                            0.01, '#7dd3fc',            // Very light blue - just a few people (1-3)
+                            0.05, '#3b82f6',            // Strong blue - very low (3-5)
+                            0.12, '#06b6d4',            // Cyan - low (5-8)
+                            0.22, '#10b981',            // Emerald green - medium-low (8-12)
+                            0.35, '#84cc16',            // Lime green - medium (12-18)
+                            0.5, '#eab308',             // Yellow for medium
+                            0.65, '#f97316',            // Orange for medium-high
+                            0.8, '#ef4444',             // Red for high
+                            1, '#dc2626'                // Dark red for very high
                         ],
-                        // Adjust radius by zoom level
+                        // Much smaller fixed radius (~50-60m)
                         'heatmap-radius': [
                             'interpolate',
-                            ['linear'],
+                            ['exponential', 2],
                             ['zoom'],
-                            12, 20,
-                            16, 50 
+                            0, 0.24,
+                            10, 2.4,
+                            12, 9.6,
+                            14, 38.4,
+                            16, 153.6,
+                            18, 614.4
                         ],
-                        'heatmap-opacity': 0.7
+                        'heatmap-opacity': 0.6
                     }
                 });
 
@@ -1530,6 +1546,17 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                     log('Updating tile data with ' + Object.keys(data.tiles).length + ' entries');
                     const incomingTiles = data.tiles;
                     
+                    // Find max count for normalization
+                    let maxCount = 0;
+                    Object.values(incomingTiles).forEach(count => {
+                        if (count > maxCount) maxCount = count;
+                    });
+                    
+                    // Use minimum of 25 as the normalizer (aggressive colors for better visibility)
+                    const normalizer = Math.max(25, maxCount);
+                    
+                    log('Max count: ' + maxCount + ', Normalizer: ' + normalizer);
+                    
                     // Iterate over all features in the source to ensure we update everything (including resetting to 0)
                     if (tilesGeoJSON && tilesGeoJSON.features) {
                          log('Processing ' + tilesGeoJSON.features.length + ' features');
@@ -1538,8 +1565,12 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                              const id = feature.properties.tileId;
                              if (id) {
                                  const count = incomingTiles[id] || 0;
+                                 // Normalize to 0-1 range, using minimum normalizer of 25
+                                 // This ensures good color visibility even for low crowd areas
+                                 const normalizedDensity = normalizer > 0 ? count / normalizer : 0;
                                  
                                  // Update state for BOTH polygon source (for interactions) and point source (for heatmap)
+                                 // Use normalized density for heatmap
                                  map.setFeatureState(
                                      { source: 'oktoberfest-tiles', id: id },
                                      { density: count }
@@ -1547,7 +1578,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                                  
                                  map.setFeatureState(
                                      { source: 'oktoberfest-points', id: id },
-                                     { density: count }
+                                     { density: normalizedDensity }
                                  );
                              }
                          });

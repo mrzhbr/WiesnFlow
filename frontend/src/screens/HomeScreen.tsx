@@ -1688,7 +1688,7 @@ export const HomeScreen = () => {
       fetchMyPosition();
 
       // Set up polling
-      const mapInterval = setInterval(fetchMapData, 30000); // Poll every 30 seconds
+      const mapInterval = setInterval(fetchMapData, 10000); // Poll every 10 seconds
       const friendsInterval = setInterval(fetchFriends, 10000); // Poll friends every 10 seconds
       const myPositionInterval = setInterval(fetchMyPosition, 10000); // Poll my position every 10 seconds
 

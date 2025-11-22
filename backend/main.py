@@ -17,7 +17,7 @@ load_dotenv()
 
 
 async def update_map_data_task():
-    """Background task to update map data every minute."""
+    """Background task to update map data every 10 seconds."""
     while True:
         try:
             from app.routers.position import _calculate_and_cache_map_data
@@ -33,7 +33,7 @@ async def update_map_data_task():
         except Exception as e:
             print(f"❌ Error updating map data: {e}")
         
-        # Wait 60 seconds before next update
+        # Wait 10 seconds before next update
         await asyncio.sleep(10)
 
 
@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI):
     
     # Start the background task for updating map data
     task = asyncio.create_task(update_map_data_task())
-    print("✅ Map data update task started (runs every 60 seconds)")
+    print("✅ Map data update task started (runs every 10 seconds)")
     
     yield
     
