@@ -161,12 +161,12 @@ def assign_positions_to_tiles(positions: List[Dict]) -> Dict[str, int]:
 # Oktoberfest tent POIs (Points of Interest)
 # Format: (tent_name, longitude, latitude)
 OKTOBERFEST_TENTS: List[Tuple[str, float, float]] = [
-    ("Schottenhammel", 11.548353, 48.132072),
-    ("Loewenbraeu", 11.549452, 48.130993),
-    ("Hacker Festzelt", 11.548750, 48.132990),
-    ("Paulaner", 11.547958, 48.131006),
-    ("Kaefer", 11.547610, 48.130425),
-    ("Augustiner", 11.549934, 48.132894),
+    ("schottenhammel", 11.548353, 48.132072),
+    ("loewenbraeu", 11.549452, 48.130993),
+    ("hacker_festzelt", 11.548750, 48.132990),
+    ("paulaner", 11.547958, 48.131006),
+    ("kaefer", 11.547610, 48.130425),
+    ("augustiner", 11.549934, 48.132894),
 ]
 
 # Radius for tent counting in meters

@@ -9,9 +9,32 @@ from fastapi_cache.backends.redis import CACHE_KEY, RedisCacheBackend
 from app.database import init_supabase, get_supabase_client
 from app.routers import health, position, friends
 from app.cache_backend import InMemoryCacheBackend
+from datetime import datetime, timezone
+import asyncio
 
 # Load environment variables
 load_dotenv()
+
+
+async def update_map_data_task():
+    """Background task to update map data every minute."""
+    while True:
+        try:
+            from app.routers.position import _calculate_and_cache_map_data
+            
+            # Generate the current minute key
+            current_time = datetime.now(timezone.utc)
+            current_minute_key = f"map_{current_time.strftime('%Y-%m-%d_%H:%M')}"
+            
+            print(f"Updating map data for {current_minute_key}...")
+            # Calculate and cache the map data
+            await _calculate_and_cache_map_data(current_minute_key)
+            print(f"✅ Map data updated successfully for {current_minute_key}")
+        except Exception as e:
+            print(f"❌ Error updating map data: {e}")
+        
+        # Wait 60 seconds before next update
+        await asyncio.sleep(60)
 
 
 @asynccontextmanager
@@ -34,8 +57,18 @@ async def lifespan(app: FastAPI):
         print("ℹ️  Using in-memory cache (set USE_REDIS=true to use Redis)")
         caches.set(CACHE_KEY, InMemoryCacheBackend())
     
+    # Start the background task for updating map data
+    task = asyncio.create_task(update_map_data_task())
+    print("✅ Map data update task started (runs every 60 seconds)")
+    
     yield
-    # Shutdown: Clean up caches
+    
+    # Shutdown: Cancel the background task and clean up caches
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
     await close_caches()
 
 
