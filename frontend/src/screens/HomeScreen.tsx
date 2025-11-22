@@ -1093,6 +1093,168 @@ const FriendSheet: React.FC<FriendSheetProps> = ({
   );
 };
 
+const STATIC_POIS = [
+  { id: "schottenhammel", name: "Schottenhammel", type: "tent", ...POI_COORDINATES.schottenhammel },
+  { id: "loewenbraeu", name: "Löwenbräu", type: "tent", ...POI_COORDINATES.loewenbraeu },
+  { id: "hacker_festzelt", name: "Hacker Festzelt", type: "tent", ...POI_COORDINATES.hacker_festzelt },
+  { id: "paulaner", name: "Paulaner", type: "tent", ...POI_COORDINATES.paulaner },
+  { id: "kaefer", name: "Käfer Wiesn-Schänke", type: "food", ...POI_COORDINATES.kaefer },
+  { id: "augustiner", name: "Augustiner", type: "tent", ...POI_COORDINATES.augustiner },
+  { id: "wilde_maus", name: "Wilde Maus", type: "roller_coaster", ...POI_COORDINATES.wilde_maus },
+  { id: "teufelsrad", name: "Teufelsrad", type: "roller_coaster", ...POI_COORDINATES.teufelsrad },
+  { id: "hexenschaukel", name: "Hexenschaukel", type: "roller_coaster", ...POI_COORDINATES.hexenschaukel },
+  { id: "kalbsbratierei_heimer", name: "Kalbsbraterei Heimer", type: "food", ...POI_COORDINATES.kalbsbratierei_heimer },
+  { id: "cafe_kaiserschmarn_rischart", name: "Café Kaiserschmarrn", type: "food", ...POI_COORDINATES.cafe_kaiserschmarn_rischart },
+];
+
+type POIDetailsSheetProps = {
+  poi: any;
+  visible: boolean;
+  onClose: () => void;
+  colorScheme: any;
+  tentOccupancy: Record<string, number>;
+  myPosition: { latitude: number; longitude: number } | null;
+};
+
+const POIDetailsSheet: React.FC<POIDetailsSheetProps> = ({
+  poi,
+  visible,
+  onClose,
+  colorScheme,
+  tentOccupancy,
+  myPosition,
+}) => {
+  const isDark = colorScheme === "dark";
+  const translateY = useRef(new Animated.Value(0)).current;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 4,
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          translateY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const shouldClose = gestureState.dy > 80 || gestureState.vy > 0.8;
+        if (shouldClose) {
+          Animated.timing(translateY, {
+            toValue: 200,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            translateY.setValue(0);
+            onClose();
+          });
+        } else {
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 4,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  if (!visible || !poi) return null;
+
+  const occupancy = getOccupancyInfo(tentOccupancy[poi.id] ?? 0, isDark);
+  let distance = null;
+  if (myPosition) {
+    distance = getDistanceFromLatLonInM(
+      myPosition.latitude,
+      myPosition.longitude,
+      poi.lat || poi.latitude,
+      poi.lon || poi.longitude
+    );
+  }
+
+  return (
+    <View pointerEvents="box-none" style={styles.bottomOverlay}>
+      <View style={styles.sheetContainer}>
+        <Animated.View
+          style={[
+            styles.bottomCard,
+            isDark ? styles.bottomCardDark : styles.bottomCardLight,
+            { transform: [{ translateY }] },
+          ]}
+          {...panResponder.panHandlers}
+        >
+          <View style={styles.sheetHandleContainer}>
+            <View style={styles.sheetHandle} />
+          </View>
+
+          <View style={styles.recItem}>
+            <View style={styles.recContent}>
+              <Text
+                style={[
+                  styles.recTitle,
+                  isDark ? styles.textLight : styles.textDark,
+                  { fontSize: 20, marginBottom: 8 },
+                ]}
+              >
+                {getCategoryEmoji(poi.type)} {poi.name || poi.tent_name}
+              </Text>
+              <View style={styles.recMetaRow}>
+                {distance !== null && (
+                  <Text
+                    style={[
+                      styles.recSubtitle,
+                      isDark ? styles.textMutedDark : styles.textMutedLight,
+                    ]}
+                  >
+                    {Math.round(distance)}m
+                  </Text>
+                )}
+                <View style={styles.occupancyContainer}>
+                  <View style={styles.occupancyBarTrack}>
+                    <View
+                      style={[
+                        styles.occupancyBarFill,
+                        {
+                          width: occupancy.width as any,
+                          backgroundColor: occupancy.color,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text
+                    style={[styles.occupancyLabel, { color: occupancy.color }]}
+                  >
+                    {occupancy.label}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </Animated.View>
+      </View>
+    </View>
+  );
+};
+
+const getDistanceFromLatLonInM = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  try {
+    const R = 6371; // Radius of the Earth in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const lat1Rad = lat1 * Math.PI / 180;
+    const lat2Rad = lat2 * Math.PI / 180;
+
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1Rad) * Math.cos(lat2Rad);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c * 1000; // Convert to meters
+
+    return distance;
+  } catch (error) {
+    console.error("Error calculating distance:", error);
+    return null;
+  }
+};
+
 export const HomeScreen = () => {
   const colorScheme = useColorScheme();
   const mapRef = useRef<MapboxWebViewRef>(null);
@@ -1123,6 +1285,11 @@ export const HomeScreen = () => {
       if (data.tents) {
         setTentOccupancy(data.tents);
       }
+
+      // Add static markers if no recommendations are active
+      if (recommendations.length === 0) {
+        mapRef.current?.addMarkers(STATIC_POIS);
+      }
     } catch (error: any) {
       console.error("[HomeScreen] Error fetching map data:", error);
       console.error("Error details:", {
@@ -1132,6 +1299,7 @@ export const HomeScreen = () => {
       });
     }
   }, []);
+
   const [selectedTile, setSelectedTile] = useState<SelectedTile>(null);
   const [isSheetVisible, setIsSheetVisible] = useState(false);
   const [isActionPopupVisible, setIsActionPopupVisible] = useState(false);
@@ -1143,7 +1311,9 @@ export const HomeScreen = () => {
   const [selectedFriend, setSelectedFriend] = useState<FriendWithCoords | null>(
     null
   );
+  const [selectedPOI, setSelectedPOI] = useState<any>(null);
   const [isFriendSheetVisible, setIsFriendSheetVisible] = useState(false);
+  const [isPOISheetVisible, setIsPOISheetVisible] = useState(false);
   const [positionOverride, setPositionOverride] = useState<{
     longitude: number;
     latitude: number;
@@ -1154,9 +1324,25 @@ export const HomeScreen = () => {
   } | null>(null);
 
   const handleRecSelect = useCallback((id: string) => {
-    setSelectedRecId(id);
-    mapRef.current?.highlightMarker(id);
-  }, []);
+    // Check if it's a recommendation
+    const rec = recommendations.find((r) => r.tent_name === id);
+    if (rec) {
+      setSelectedRecId(id);
+      mapRef.current?.highlightMarker(id);
+      setIsPOISheetVisible(false); // Ensure POI sheet is closed
+      return;
+    }
+
+    // Check if it's a static POI
+    // Try matching by name or id
+    const poi = STATIC_POIS.find((p) => p.name === id || p.id === id);
+    if (poi) {
+      setSelectedPOI(poi);
+      setIsPOISheetVisible(true);
+      setIsSheetVisible(false);
+      setSelectedTile(null);
+    }
+  }, [recommendations]);
 
   const fetchFriends = useCallback(async () => {
     try {
@@ -1391,6 +1577,8 @@ export const HomeScreen = () => {
     (tile: { tileId: string; row: number; col: number }) => {
       setSelectedTile(tile);
       setIsSheetVisible(true);
+      setIsPOISheetVisible(false);
+      setSelectedPOI(null);
     },
     []
   );
@@ -1461,9 +1649,15 @@ export const HomeScreen = () => {
 
       setRecommendations(enrichedResults);
       if (enrichedResults.length > 0) {
-        handleRecSelect(enrichedResults[0].tent_name);
-        setIsSheetVisible(false);
+        // Select the first recommendation directly to avoid stale state issues in handleRecSelect
+        const firstId = enrichedResults[0].tent_name;
+        setSelectedRecId(firstId);
+        mapRef.current?.highlightMarker(firstId);
+        
+        setIsSheetVisible(false); // Close tile sheet
+        setIsPOISheetVisible(false); // Close POI sheet
         setSelectedTile(null);
+        setSelectedPOI(null);
       }
     } catch (e) {
       console.error("Error fetching recommendations:", e);
@@ -1556,10 +1750,22 @@ export const HomeScreen = () => {
         onClose={() => {
           setRecommendations([]);
           setSelectedRecId(null);
-          mapRef.current?.addMarkers([]);
+          mapRef.current?.addMarkers(STATIC_POIS);
         }}
         colorScheme={colorScheme}
         tentOccupancy={tentOccupancy}
+      />
+
+      <POIDetailsSheet
+        poi={selectedPOI}
+        visible={isPOISheetVisible}
+        onClose={() => {
+            setIsPOISheetVisible(false);
+            setSelectedPOI(null);
+        }}
+        colorScheme={colorScheme}
+        tentOccupancy={tentOccupancy}
+        myPosition={myPosition}
       />
 
       <FriendSheet
