@@ -1,0 +1,76 @@
+{
+  "entrances": [
+    {
+      "id": "entrance-south",
+      "name": "Südeingang",
+      "coordinates": [11.547851, 48.126955],
+      "type": "entrance"
+    },
+    {
+      "id": "entrance-south-west",
+      "name": "Südwesteingang",
+      "coordinates": [11.545254, 48.129470],
+      "type": "entrance"
+    },
+    {
+      "id": "entrance-east",
+      "name": "Osteingang",
+      "coordinates": [11.552789, 48.130250],
+      "type": "entrance"
+    },
+    {
+      "id": "entrance-north-east",
+      "name": "Nordosteingang",
+      "coordinates": [11.552989, 48.132063],
+      "type": "entrance"
+    },
+    {
+      "id": "entrance-nord",
+      "name": "Nordeingang",
+      "coordinates": [11.552400, 48.134907],
+      "type": "entrance"
+    },
+    {
+      "id": "entrance-main",
+      "name": "Haupteingang",
+      "coordinates": [11.550106, 48.136000],
+      "type": "entrance"
+    },
+    {
+      "id": "entrance-west",
+      "name": "Westeingang",
+      "coordinates": [11.546191, 48.132025],
+      "type": "entrance"
+    }
+  ],
+  "ubahn_stations": [
+    {
+      "id": "ubahn-theresienwiese",
+      "name": "Theresienwiese",
+      "coordinates": [11.553300, 48.136400],
+      "type": "ubahn",
+      "lines": ["U4", "U5"]
+    },
+    {
+      "id": "ubahn-goetheplatz",
+      "name": "Goetheplatz",
+      "coordinates": [11.558359, 48.129593],
+      "type": "ubahn",
+      "lines": ["U3", "U6"]
+    },
+    {
+      "id": "ubahn-poccistrasse",
+      "name": "Poccistraße",
+      "coordinates": [11.550674, 48.125873],
+      "type": "ubahn",
+      "lines": ["U3", "U6"]
+    },
+    {
+      "id": "ubahn-schwanthalerhöhe",
+      "name": "Schwanthalerhöhe",
+      "coordinates": [11.541176, 48.133807],
+      "type": "ubahn",
+      "lines": ["U4", "U5"]
+    }
+  ]
+}

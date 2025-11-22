@@ -3,6 +3,14 @@ import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import oktoberfestTiles from '../data/oktoberfest_tiles.json';
 
+export interface Marker {
+    id: string;
+    name: string;
+    coordinates: [number, number];
+    type: 'entrance' | 'ubahn';
+    lines?: string[];
+}
+
 interface MapboxWebViewProps {
     accessToken: string;
     style?: any;
@@ -10,11 +18,13 @@ interface MapboxWebViewProps {
     initialZoom?: number;
     colorScheme?: 'light' | 'dark' | null | undefined;
     onTilePress?: (tile: { tileId: string; row: number; col: number }) => void;
+    markers?: Marker[];
 }
 
 export interface MapboxWebViewRef {
     flyTo: (center: [number, number], zoom?: number) => void;
     updateTileData: (tiles: Record<string, number>) => void;
+    updateMarkers: (markers: Marker[]) => void;
 }
 
 export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
@@ -23,7 +33,8 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
     initialCenter = [-74.5, 40],
     initialZoom = 9,
     colorScheme = 'light',
-    onTilePress
+    onTilePress,
+    markers = []
 }, ref) => {
     const webViewRef = useRef<WebView>(null);
     const mapStyle = colorScheme === 'dark'
@@ -42,6 +53,12 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
             webViewRef.current?.postMessage(JSON.stringify({
                 type: 'updateTileData',
                 tiles
+            }));
+        },
+        updateMarkers: (markers) => {
+            webViewRef.current?.postMessage(JSON.stringify({
+                type: 'updateMarkers',
+                markers
             }));
         }
     }));
@@ -64,7 +81,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                     style: mapStyle
                 }));
             } else if (typeof raw === 'string' && raw.startsWith('log:')) {
-                console.log('MapboxWebView Log:', raw);
+                // Logging disabled
             } else if (typeof raw === 'string') {
                 try {
                     const message = JSON.parse(raw);
@@ -72,11 +89,11 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                         onTilePress(message.tile);
                     }
                 } catch (parseError) {
-                    console.error('Error parsing WebView message', parseError);
+                    // Silently handle parse errors
                 }
             }
         } catch (e) {
-            console.error('Error handling WebView message', e);
+            // Silently handle message errors
         }
     };
 
@@ -126,9 +143,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
       <div id="map"></div>
       <script>
         function log(msg) {
-            if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage('log:' + msg);
-            }
+            // Logging disabled
         }
 
         const tilesGeoJSON = ${JSON.stringify(oktoberfestTiles)};
@@ -375,6 +390,52 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
         // Poll API every 5 seconds for updates
         setInterval(fetchTileData, 5000);
 
+        // Store markers for managing
+        let currentMarkers = [];
+
+        // Function to add markers to the map
+        function addMarkers(markers) {
+            // Remove existing markers
+            currentMarkers.forEach(marker => marker.remove());
+            currentMarkers = [];
+
+            if (!markers || markers.length === 0) {
+                return;
+            }
+
+            markers.forEach(markerData => {
+                // Create a custom marker element
+                const el = document.createElement('div');
+                el.style.width = '32px';
+                el.style.height = '32px';
+                el.style.fontSize = '24px';
+                el.style.cursor = 'pointer';
+                el.style.textAlign = 'center';
+                el.style.lineHeight = '32px';
+                
+                // Set emoji based on type
+                if (markerData.type === 'entrance') {
+                    el.textContent = '🔴';
+                } else if (markerData.type === 'ubahn') {
+                    el.textContent = 'Ⓜ️';
+                }
+
+                // Create the marker
+                const marker = new mapboxgl.Marker(el)
+                    .setLngLat(markerData.coordinates)
+                    .setPopup(
+                        new mapboxgl.Popup({ offset: 25 })
+                            .setHTML('<div style="font-weight: 600;">' + markerData.name + '</div>' + 
+                                    (markerData.lines ? '<div style="font-size: 12px; color: #666; margin-top: 4px;">Lines: ' + markerData.lines.join(', ') + '</div>' : ''))
+                    )
+                    .addTo(map);
+
+                currentMarkers.push(marker);
+            });
+
+            log('Added ' + markers.length + ' markers to map');
+        }
+
         // Listen for messages from React Native
         window.addEventListener('message', handleMessage);
         document.addEventListener('message', handleMessage);
@@ -419,6 +480,9 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                              }
                          });
                     }
+                } else if (data.type === 'updateMarkers') {
+                    log('Updating markers with ' + (data.markers ? data.markers.length : 0) + ' items');
+                    addMarkers(data.markers);
                 }
             } catch (e) {
                 log('Error handling message: ' + e.toString());
