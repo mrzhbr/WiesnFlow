@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from app.database import get_supabase_client
 from app.models.position import Position, PositionCreate, PositionResponse
+from app.tiles import assign_positions_to_tiles
 from datetime import datetime, timezone, timedelta
 router = APIRouter()
 
@@ -81,7 +82,10 @@ async def update_position(position: PositionCreate):
 async def get_map():
     """
     Get the latest position entry for each user (by uid) that is at most one hour old.
-    Efficiently groups by uid using ordered query results.
+    Assign each position to its corresponding 50x50m tile and return a map of tile_id -> count.
+    
+    Returns:
+        Dictionary mapping tile_id (e.g., "tile_5_7") to count of positions in that tile
     """
     supabase = get_supabase_client()
     
@@ -92,15 +96,18 @@ async def get_map():
     # Get all positions from the last hour, ordered by last_update desc
     # Then group by uid in Python - first occurrence of each uid is the latest
     response = supabase.table("positions").select("*").gte("last_update", one_hour_ago_iso).order("last_update", desc=True).execute()
-    
     # Group by uid - since results are ordered by last_update desc,
     # the first entry we encounter for each uid is the latest one
-    latest_by_user = {}
+    latest_by_user = []
+    seen_uids = set()
     for entry in response.data:
         uid = entry.get("uid")
-        if uid and uid not in latest_by_user:
-            latest_by_user[uid] = entry
-
+        if uid and uid not in seen_uids:
+            latest_by_user.append(entry)
+            seen_uids.add(uid)
     
+    # Assign positions to tiles and get counts
+    tile_counts = assign_positions_to_tiles(latest_by_user)
     
+    return tile_counts
     
