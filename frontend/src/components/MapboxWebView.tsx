@@ -17,6 +17,7 @@ interface MapboxWebViewProps {
   onTilePress?: (tile: { tileId: string; row: number; col: number }) => void;
   onMarkerPress?: (markerId: string) => void;
   onFriendMarkerPress?: (friendId: string) => void;
+  onMapLongPress?: (coords: { longitude: number; latitude: number }) => void;
   tileInteractionsEnabled?: boolean;
 }
 
@@ -25,6 +26,7 @@ export interface MapboxWebViewRef {
   updateTileData: (tiles: Record<string, number>) => void;
   addMarkers: (markers: any[]) => void;
   addFriendMarkers: (friends: any[]) => void;
+  updateMyPosition: (position: { longitude: number; latitude: number; name: string } | null) => void;
   highlightMarker: (markerId: string) => void;
 }
 
@@ -39,6 +41,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
       onTilePress,
       onMarkerPress,
       onFriendMarkerPress,
+      onMapLongPress,
       tileInteractionsEnabled = true,
     },
     ref
@@ -93,6 +96,14 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
           })
         );
       },
+      updateMyPosition: (position) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "updateMyPosition",
+            position,
+          })
+        );
+      },
     }));
 
     useEffect(() => {
@@ -144,6 +155,12 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
               onFriendMarkerPress
             ) {
               onFriendMarkerPress(message.friendId);
+            } else if (
+              message.type === "mapLongPress" &&
+              message.coords &&
+              onMapLongPress
+            ) {
+              onMapLongPress(message.coords);
             }
           } catch (parseError) {
             console.error("Error parsing WebView message", parseError);
@@ -193,37 +210,6 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
             font-size: 12px;
             color: #6b7280;
             font-weight: 500;
-        }
-        .friend-marker-container {
-            position: relative;
-            width: 32px;
-            height: 32px;
-        }
-        .friend-marker-pulse {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 32px;
-            height: 32px;
-            border-radius: 16px;
-            background-color: rgba(59, 130, 246, 0.4);
-            animation: friendPulse 1.8s ease-out infinite;
-            pointer-events: none;
-        }
-        @keyframes friendPulse {
-            0% {
-                transform: translate(-50%, -50%) scale(1);
-                opacity: 0.8;
-            }
-            100% {
-                transform: translate(-50%, -50%) scale(2);
-                opacity: 0;
-            }
-        }
-        .friend-marker-circle {
-            position: relative;
-            z-index: 1;
         }
     </style>
     </head>
@@ -483,6 +469,75 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                 window.ReactNativeWebView.postMessage('mapLoaded');
             }
         });
+        
+        // Long press detection for position override
+        let longPressTimeout = null;
+        let longPressCoords = null;
+        
+        map.on('mousedown', function(e) {
+            longPressCoords = e.lngLat;
+            longPressTimeout = setTimeout(() => {
+                if (longPressCoords && window.ReactNativeWebView) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'mapLongPress',
+                        coords: {
+                            longitude: longPressCoords.lng,
+                            latitude: longPressCoords.lat
+                        }
+                    }));
+                    log('Long press detected at: ' + longPressCoords.lng + ', ' + longPressCoords.lat);
+                }
+            }, 800); // 800ms for long press
+        });
+        
+        map.on('mouseup', function() {
+            if (longPressTimeout) {
+                clearTimeout(longPressTimeout);
+                longPressTimeout = null;
+            }
+            longPressCoords = null;
+        });
+        
+        map.on('mousemove', function() {
+            if (longPressTimeout) {
+                clearTimeout(longPressTimeout);
+                longPressTimeout = null;
+            }
+        });
+        
+        // Touch events for mobile
+        map.on('touchstart', function(e) {
+            if (e.originalEvent.touches.length === 1) {
+                longPressCoords = e.lngLat;
+                longPressTimeout = setTimeout(() => {
+                    if (longPressCoords && window.ReactNativeWebView) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'mapLongPress',
+                            coords: {
+                                longitude: longPressCoords.lng,
+                                latitude: longPressCoords.lat
+                            }
+                        }));
+                        log('Long press detected at: ' + longPressCoords.lng + ', ' + longPressCoords.lat);
+                    }
+                }, 800);
+            }
+        });
+        
+        map.on('touchend', function() {
+            if (longPressTimeout) {
+                clearTimeout(longPressTimeout);
+                longPressTimeout = null;
+            }
+            longPressCoords = null;
+        });
+        
+        map.on('touchmove', function() {
+            if (longPressTimeout) {
+                clearTimeout(longPressTimeout);
+                longPressTimeout = null;
+            }
+        });
 
         // Re-add tiles whenever style data loads or changes
         map.on('styledata', function() {
@@ -561,70 +616,322 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
             }
         }
 
-        let friendMarkers = [];
-        
-        function getInitial(name) {
-            if (!name || name.length === 0) return '?';
-            return name.charAt(0).toUpperCase();
-        }
-
         function updateFriendMarkers(friends) {
-            // Remove all existing friend markers
-            friendMarkers.forEach(marker => marker.remove());
-            friendMarkers = [];
+            if (!friends || friends.length === 0) {
+                // Clear friend markers
+                if (map.getSource('friend-markers')) {
+                    map.getSource('friend-markers').setData({
+                        type: 'FeatureCollection',
+                        features: []
+                    });
+                }
+                return;
+            }
             
-            if (friends.length === 0) return;
+            // Process friends
+            const features = friends.map(f => {
+                const lng = parseFloat(f.longitude);
+                const lat = parseFloat(f.latitude);
+                
+                // Validate coordinates
+                if (isNaN(lng) || isNaN(lat)) {
+                    log('Invalid coordinates for friend: ' + f.user_id);
+                    return null;
+                }
+                
+                return {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [lng, lat]
+                    },
+                    properties: {
+                        userId: f.user_id,
+                        name: f.name || 'Friend'
+                    }
+                };
+            }).filter(f => f !== null);
             
-            // Create HTML markers with initials and pulse animation
-            friends.forEach(f => {
-                const el = document.createElement('div');
-                el.className = 'friend-marker-container';
+            const geojson = {
+                type: 'FeatureCollection',
+                features: features
+            };
+            
+            // Add or update source and layers
+            if (!map.getSource('friend-markers')) {
+                // Add source
+                map.addSource('friend-markers', {
+                    type: 'geojson',
+                    data: geojson
+                });
                 
-                // Get initial
-                const initial = getInitial(f.name);
-                
-                // Create pulse ring
-                const pulseRing = document.createElement('div');
-                pulseRing.className = 'friend-marker-pulse';
-                
-                // Create main circle with initial
-                const circle = document.createElement('div');
-                circle.className = 'friend-marker-circle';
-                circle.textContent = initial;
-                circle.style.backgroundColor = '#3b82f6';
-                circle.style.width = '32px';
-                circle.style.height = '32px';
-                circle.style.borderRadius = '16px';
-                circle.style.border = '3px solid #ffffff';
-                circle.style.display = 'flex';
-                circle.style.alignItems = 'center';
-                circle.style.justifyContent = 'center';
-                circle.style.color = '#ffffff';
-                circle.style.fontSize = '14px';
-                circle.style.fontWeight = '600';
-                circle.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
-                circle.style.cursor = 'pointer';
-                
-                el.appendChild(pulseRing);
-                el.appendChild(circle);
-                
-                // Add click handler
-                el.addEventListener('click', () => {
-                    if (window.ReactNativeWebView) {
-                        window.ReactNativeWebView.postMessage(JSON.stringify({
-                            type: 'friendMarkerPress',
-                            friendId: f.user_id
-                        }));
+                // Add ping animation layer (outer ring)
+                map.addLayer({
+                    id: 'friend-markers-ping',
+                    type: 'circle',
+                    source: 'friend-markers',
+                    paint: {
+                        'circle-radius': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            10, 8,
+                            16, 20
+                        ],
+                        'circle-color': '#3b82f6',
+                        'circle-opacity': 0,
+                        'circle-stroke-width': 0,
+                        'circle-stroke-opacity': 0
                     }
                 });
                 
-                // Create marker
-                const marker = new mapboxgl.Marker(el)
-                    .setLngLat([f.longitude, f.latitude])
-                    .addTo(map);
+                // Add main circle layer
+                map.addLayer({
+                    id: 'friend-markers-circle',
+                    type: 'circle',
+                    source: 'friend-markers',
+                    paint: {
+                        'circle-radius': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            10, 6,
+                            16, 14
+                        ],
+                        'circle-color': '#3b82f6',
+                        'circle-stroke-width': 3,
+                        'circle-stroke-color': '#ffffff',
+                        'circle-opacity': 1
+                    }
+                });
                 
-                friendMarkers.push(marker);
-            });
+                // Add text label layer with first letter of name
+                map.addLayer({
+                    id: 'friend-markers-label',
+                    type: 'symbol',
+                    source: 'friend-markers',
+                    layout: {
+                        'text-field': ['upcase', ['slice', ['get', 'name'], 0, 1]],
+                        'text-size': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            10, 10,
+                            16, 16
+                        ],
+                        'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+                        'text-allow-overlap': true,
+                        'text-ignore-placement': true
+                    },
+                    paint: {
+                        'text-color': '#ffffff'
+                    }
+                });
+                
+                // Add click handler for friend markers (both circle and label)
+                const handleFriendClick = (e) => {
+                    if (e.features && e.features.length > 0) {
+                        const userId = e.features[0].properties.userId;
+                        if (window.ReactNativeWebView) {
+                            window.ReactNativeWebView.postMessage(JSON.stringify({
+                                type: 'friendMarkerPress',
+                                friendId: userId
+                            }));
+                        }
+                    }
+                };
+                
+                map.on('click', 'friend-markers-circle', handleFriendClick);
+                map.on('click', 'friend-markers-label', handleFriendClick);
+                
+                // Change cursor on hover (both circle and label)
+                map.on('mouseenter', 'friend-markers-circle', () => {
+                    map.getCanvas().style.cursor = 'pointer';
+                });
+                map.on('mouseleave', 'friend-markers-circle', () => {
+                    map.getCanvas().style.cursor = '';
+                });
+                map.on('mouseenter', 'friend-markers-label', () => {
+                    map.getCanvas().style.cursor = 'pointer';
+                });
+                map.on('mouseleave', 'friend-markers-label', () => {
+                    map.getCanvas().style.cursor = '';
+                });
+                
+                // Start ping animation
+                animateFriendPing();
+            } else {
+                // Update existing source
+                map.getSource('friend-markers').setData(geojson);
+            }
+        }
+        
+        // Animate the ping effect
+        let pingAnimationId = null;
+        function animateFriendPing() {
+            if (pingAnimationId) {
+                cancelAnimationFrame(pingAnimationId);
+            }
+            
+            let start = null;
+            const duration = 2000; // 2 second cycle
+            
+            function animate(timestamp) {
+                if (!start) start = timestamp;
+                const elapsed = timestamp - start;
+                const progress = (elapsed % duration) / duration;
+                
+                if (map.getLayer('friend-markers-ping')) {
+                    // Scale from 1 to 2.5
+                    const scale = 1 + (progress * 1.5);
+                    // Fade from 0.6 to 0
+                    const opacity = progress < 0.75 ? (0.6 * (1 - progress / 0.75)) : 0;
+                    
+                    map.setPaintProperty('friend-markers-ping', 'circle-radius', [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        10, 8 * scale,
+                        16, 20 * scale
+                    ]);
+                    map.setPaintProperty('friend-markers-ping', 'circle-opacity', opacity);
+                }
+                
+                // Also animate my position ping
+                if (map.getLayer('my-position-ping')) {
+                    const scale = 1 + (progress * 1.5);
+                    const opacity = progress < 0.75 ? (0.6 * (1 - progress / 0.75)) : 0;
+                    
+                    map.setPaintProperty('my-position-ping', 'circle-radius', [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        10, 8 * scale,
+                        16, 20 * scale
+                    ]);
+                    map.setPaintProperty('my-position-ping', 'circle-opacity', opacity);
+                }
+                
+                pingAnimationId = requestAnimationFrame(animate);
+            }
+            
+            pingAnimationId = requestAnimationFrame(animate);
+        }
+        
+        function updateMyPositionMarker(position) {
+            if (!position) {
+                // Clear my position marker
+                if (map.getSource('my-position-marker')) {
+                    map.getSource('my-position-marker').setData({
+                        type: 'FeatureCollection',
+                        features: []
+                    });
+                }
+                return;
+            }
+            
+            const lng = parseFloat(position.longitude);
+            const lat = parseFloat(position.latitude);
+            
+            // Validate coordinates
+            if (isNaN(lng) || isNaN(lat)) {
+                log('Invalid coordinates for my position');
+                return;
+            }
+            
+            const geojson = {
+                type: 'FeatureCollection',
+                features: [{
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [lng, lat]
+                    },
+                    properties: {
+                        name: position.name || 'Me'
+                    }
+                }]
+            };
+            
+            // Add or update source and layers
+            if (!map.getSource('my-position-marker')) {
+                // Add source
+                map.addSource('my-position-marker', {
+                    type: 'geojson',
+                    data: geojson
+                });
+                
+                // Add ping animation layer (outer ring) - GREEN
+                map.addLayer({
+                    id: 'my-position-ping',
+                    type: 'circle',
+                    source: 'my-position-marker',
+                    paint: {
+                        'circle-radius': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            10, 8,
+                            16, 20
+                        ],
+                        'circle-color': '#22c55e',
+                        'circle-opacity': 0,
+                        'circle-stroke-width': 0,
+                        'circle-stroke-opacity': 0
+                    }
+                });
+                
+                // Add main circle layer - GREEN
+                map.addLayer({
+                    id: 'my-position-circle',
+                    type: 'circle',
+                    source: 'my-position-marker',
+                    paint: {
+                        'circle-radius': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            10, 6,
+                            16, 14
+                        ],
+                        'circle-color': '#22c55e',
+                        'circle-stroke-width': 3,
+                        'circle-stroke-color': '#ffffff',
+                        'circle-opacity': 1
+                    }
+                });
+                
+                // Add text label layer with first letter of name
+                map.addLayer({
+                    id: 'my-position-label',
+                    type: 'symbol',
+                    source: 'my-position-marker',
+                    layout: {
+                        'text-field': ['upcase', ['slice', ['get', 'name'], 0, 1]],
+                        'text-size': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            10, 10,
+                            16, 16
+                        ],
+                        'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+                        'text-allow-overlap': true,
+                        'text-ignore-placement': true
+                    },
+                    paint: {
+                        'text-color': '#ffffff'
+                    }
+                });
+                
+                // Start ping animation if not already running
+                if (!pingAnimationId) {
+                    animateFriendPing();
+                }
+            } else {
+                // Update existing source
+                map.getSource('my-position-marker').setData(geojson);
+            }
         }
 
         function handleMessage(event) {
@@ -647,6 +954,9 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                 } else if (data.type === 'addFriendMarkers') {
                     log('Adding friend markers: ' + data.friends.length);
                     updateFriendMarkers(data.friends);
+                } else if (data.type === 'updateMyPosition') {
+                    log('Updating my position: ' + JSON.stringify(data.position));
+                    updateMyPositionMarker(data.position);
                 } else if (data.type === 'highlightMarker') {
                     const id = data.markerId;
                     if (map.getLayer('recommendation-markers-circles')) {

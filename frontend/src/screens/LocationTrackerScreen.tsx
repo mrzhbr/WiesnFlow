@@ -10,7 +10,46 @@ import {
 import * as Location from "expo-location";
 import * as Crypto from "expo-crypto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { API_BASE_URL, UUID_STORAGE_KEY } from "../config";
+import {
+  API_BASE_URL,
+  UUID_STORAGE_KEY,
+  POSITION_OVERRIDE_STORAGE_KEY,
+} from "../config";
+
+/**
+ * Get position - either from override (demo mode) or from GPS
+ */
+const getPosition = async (): Promise<{
+  latitude: number;
+  longitude: number;
+}> => {
+  // Check for position override first (demo mode)
+  try {
+    const override = await AsyncStorage.getItem(POSITION_OVERRIDE_STORAGE_KEY);
+    if (override) {
+      const coords = JSON.parse(override);
+      console.log(
+        "[LocationTracker] Using position override (demo mode):",
+        coords
+      );
+      return { latitude: coords.latitude, longitude: coords.longitude };
+    }
+  } catch (error) {
+    console.log("[LocationTracker] Error reading position override:", error);
+  }
+
+  // Fall back to GPS
+  const location = await Location.getCurrentPositionAsync({});
+  console.log(
+    "[LocationTracker] Using GPS position:",
+    location.coords.latitude,
+    location.coords.longitude
+  );
+  return {
+    latitude: location.coords.latitude,
+    longitude: location.coords.longitude,
+  };
+};
 
 export const LocationTrackerScreen: React.FC = () => {
   const colorScheme = useColorScheme();
@@ -127,13 +166,26 @@ export const LocationTrackerScreen: React.FC = () => {
         }
 
         console.log("[LocationTracker] Getting current position...");
-        const current = await Location.getCurrentPositionAsync({});
+        const coords = await getPosition();
         console.log(
           "[LocationTracker] Current position:",
-          current.coords.latitude,
-          current.coords.longitude
+          coords.latitude,
+          coords.longitude
         );
-        setLocation(current);
+        // Create a location object for display (even if using override)
+        const locationObj = {
+          coords: {
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            altitude: null,
+            accuracy: null,
+            altitudeAccuracy: null,
+            heading: null,
+            speed: null,
+          },
+          timestamp: Date.now(),
+        } as Location.LocationObject;
+        setLocation(locationObj);
 
         try {
           const url = `${API_BASE_URL}/position`;
@@ -141,12 +193,17 @@ export const LocationTrackerScreen: React.FC = () => {
             "[LocationTracker] Posting initial position to API:",
             url
           );
+          console.log(
+            "[LocationTracker] Position:",
+            coords.latitude,
+            coords.longitude
+          );
           const response = await fetch(url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              long: current.coords.longitude,
-              lat: current.coords.latitude,
+              long: coords.longitude,
+              lat: coords.latitude,
               uid,
             }),
           });
@@ -180,13 +237,25 @@ export const LocationTrackerScreen: React.FC = () => {
         );
         const intervalId = setInterval(async () => {
           try {
-            const updated = await Location.getCurrentPositionAsync({});
+            const updatedCoords = await getPosition();
             console.log(
               "[LocationTracker] Updated position:",
-              updated.coords.latitude,
-              updated.coords.longitude
+              updatedCoords.latitude,
+              updatedCoords.longitude
             );
-            setLocation(updated);
+            const updatedLocationObj = {
+              coords: {
+                latitude: updatedCoords.latitude,
+                longitude: updatedCoords.longitude,
+                altitude: null,
+                accuracy: null,
+                altitudeAccuracy: null,
+                heading: null,
+                speed: null,
+              },
+              timestamp: Date.now(),
+            } as Location.LocationObject;
+            setLocation(updatedLocationObj);
 
             if (uid) {
               try {
@@ -195,8 +264,8 @@ export const LocationTrackerScreen: React.FC = () => {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
-                    long: updated.coords.longitude,
-                    lat: updated.coords.latitude,
+                    long: updatedCoords.longitude,
+                    lat: updatedCoords.latitude,
                     uid,
                   }),
                 });

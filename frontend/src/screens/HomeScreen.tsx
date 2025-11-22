@@ -18,6 +18,7 @@ import {
   API_BASE_URL,
   UUID_STORAGE_KEY,
   FRIEND_NAMES_STORAGE_KEY,
+  POSITION_OVERRIDE_STORAGE_KEY,
 } from "../config";
 
 const INITIAL_CENTER: [number, number] = [11.5492349, 48.1313557];
@@ -918,22 +919,51 @@ const RecommendationsSheet: React.FC<RecommendationsSheetProps> = ({
   );
 };
 
-type FriendPopoverProps = {
+type FriendSheetProps = {
   friend: FriendWithCoords | null;
   visible: boolean;
   onClose: () => void;
   colorScheme: "light" | "dark" | null | undefined;
 };
 
-const FriendPopover: React.FC<FriendPopoverProps> = ({
+const FriendSheet: React.FC<FriendSheetProps> = ({
   friend,
   visible,
   onClose,
   colorScheme,
 }) => {
   const isDark = colorScheme === "dark";
+  const translateY = useRef(new Animated.Value(0)).current;
 
-  if (!visible || !friend) return null;
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 4,
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          translateY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const shouldClose = gestureState.dy > 80 || gestureState.vy > 0.8;
+        if (shouldClose) {
+          Animated.timing(translateY, {
+            toValue: 200,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            translateY.setValue(0);
+            onClose();
+          });
+        } else {
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 4,
+          }).start();
+        }
+      },
+    })
+  ).current;
 
   const formatLastSeen = (lastUpdate: string | null): string => {
     if (!lastUpdate) return "Never";
@@ -957,49 +987,51 @@ const FriendPopover: React.FC<FriendPopoverProps> = ({
     }
   };
 
+  if (!visible || !friend) return null;
+
   return (
-    <Modal
-      transparent
-      visible={visible}
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <Pressable style={styles.popoverOverlay} onPress={onClose}>
-        <Pressable
+    <View pointerEvents="box-none" style={styles.bottomOverlay}>
+      <View style={styles.sheetContainer}>
+        <Animated.View
           style={[
-            styles.friendPopover,
-            isDark ? styles.friendPopoverDark : styles.friendPopoverLight,
+            styles.bottomCard,
+            isDark ? styles.bottomCardDark : styles.bottomCardLight,
+            { transform: [{ translateY }] },
           ]}
-          onPress={(e) => e.stopPropagation()}
+          {...panResponder.panHandlers}
         >
-          <View style={styles.friendPopoverHeader}>
-            <View style={styles.friendPopoverIcon}>
-              <Ionicons
-                name="person"
-                size={24}
-                color={isDark ? "#e5e7eb" : "#0f172a"}
-              />
+          <View style={styles.sheetHandleContainer}>
+            <View style={styles.sheetHandle} />
+          </View>
+
+          <View style={styles.friendSheetHeader}>
+            <View style={styles.friendSheetIcon}>
+              <Text style={styles.friendSheetInitial}>
+                {friend.name.charAt(0).toUpperCase()}
+              </Text>
             </View>
           </View>
+
           <Text
             style={[
-              styles.friendPopoverName,
+              styles.friendSheetName,
               isDark ? styles.textLight : styles.textDark,
             ]}
           >
             {friend.name}
           </Text>
+
           <Text
             style={[
-              styles.friendPopoverTime,
+              styles.friendSheetTime,
               isDark ? styles.textMutedDark : styles.textMutedLight,
             ]}
           >
             Last seen: {formatLastSeen(friend.last_update)}
           </Text>
-        </Pressable>
-      </Pressable>
-    </Modal>
+        </Animated.View>
+      </View>
+    </View>
   );
 };
 
@@ -1049,7 +1081,15 @@ export const HomeScreen = () => {
   const [selectedFriend, setSelectedFriend] = useState<FriendWithCoords | null>(
     null
   );
-  const [isFriendPopoverVisible, setIsFriendPopoverVisible] = useState(false);
+  const [isFriendSheetVisible, setIsFriendSheetVisible] = useState(false);
+  const [positionOverride, setPositionOverride] = useState<{
+    longitude: number;
+    latitude: number;
+  } | null>(null);
+  const [myPosition, setMyPosition] = useState<{
+    longitude: number;
+    latitude: number;
+  } | null>(null);
 
   const handleRecSelect = useCallback((id: string) => {
     setSelectedRecId(id);
@@ -1101,18 +1141,23 @@ export const HomeScreen = () => {
             friendNames[friend.user_id] ||
             `Friend ${friend.user_id.substring(0, 8)}`;
 
+          // Only store 2D coordinates (longitude, latitude) - ensure pure lat/lon values
           friendsWithCoords.push({
-            ...friend,
-            longitude,
-            latitude,
-            name,
+            user_id: friend.user_id,
+            accepted: friend.accepted,
+            is_sent_by_me: friend.is_sent_by_me,
+            position: null, // Don't store the WKB string, only decoded coordinates
+            last_update: friend.last_update,
+            longitude: longitude,
+            latitude: latitude,
+            name: name,
           });
         }
 
         setFriends(friendsWithCoords);
 
-        // Add friend markers to map
-        if (mapRef.current && friendsWithCoords.length > 0) {
+        // Add friend markers to map (or clear if empty)
+        if (mapRef.current) {
           mapRef.current.addFriendMarkers(friendsWithCoords);
         }
       }
@@ -1126,11 +1171,121 @@ export const HomeScreen = () => {
       const friend = friends.find((f) => f.user_id === friendId);
       if (friend) {
         setSelectedFriend(friend);
-        setIsFriendPopoverVisible(true);
+        setIsFriendSheetVisible(true);
       }
     },
     [friends]
   );
+
+  const fetchMyPosition = useCallback(async () => {
+    try {
+      // Check for position override first (demo mode)
+      const override = await AsyncStorage.getItem(
+        POSITION_OVERRIDE_STORAGE_KEY
+      );
+      if (override) {
+        const coords = JSON.parse(override);
+        console.log(
+          "[HomeScreen] Using position override for my position:",
+          coords
+        );
+        setMyPosition(coords);
+        if (mapRef.current) {
+          mapRef.current.updateMyPosition({
+            longitude: coords.longitude,
+            latitude: coords.latitude,
+            name: "Me",
+          });
+        }
+        return;
+      }
+
+      // If no override, try to get GPS position
+      // Note: We're on the Home screen which doesn't have GPS permission yet
+      // So we'll just clear the marker if no override exists
+      console.log(
+        "[HomeScreen] No position override, clearing my position marker"
+      );
+      setMyPosition(null);
+      if (mapRef.current) {
+        mapRef.current.updateMyPosition(null);
+      }
+    } catch (error) {
+      console.error("[HomeScreen] Error fetching my position:", error);
+    }
+  }, []);
+
+  const handleMapLongPress = useCallback(
+    async (coords: { longitude: number; latitude: number }) => {
+      console.log("[HomeScreen] Long press detected:", coords);
+      try {
+        await AsyncStorage.setItem(
+          POSITION_OVERRIDE_STORAGE_KEY,
+          JSON.stringify(coords)
+        );
+        setPositionOverride(coords);
+        setMyPosition(coords);
+        console.log("[HomeScreen] Position override saved:", coords);
+        // Update map immediately
+        if (mapRef.current) {
+          mapRef.current.updateMyPosition({
+            longitude: coords.longitude,
+            latitude: coords.latitude,
+            name: "Me",
+          });
+        }
+      } catch (error) {
+        console.error("[HomeScreen] Error saving position override:", error);
+      }
+    },
+    []
+  );
+
+  const handleClearPositionOverride = useCallback(async () => {
+    try {
+      await AsyncStorage.removeItem(POSITION_OVERRIDE_STORAGE_KEY);
+      setPositionOverride(null);
+      setMyPosition(null);
+      console.log("[HomeScreen] Position override cleared");
+      // Clear marker from map
+      if (mapRef.current) {
+        mapRef.current.updateMyPosition(null);
+      }
+    } catch (error) {
+      console.error("[HomeScreen] Error clearing position override:", error);
+    }
+  }, []);
+
+  // Load position override on mount
+  useEffect(() => {
+    const loadPositionOverride = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(
+          POSITION_OVERRIDE_STORAGE_KEY
+        );
+        if (stored) {
+          const coords = JSON.parse(stored);
+          setPositionOverride(coords);
+          setMyPosition(coords);
+          console.log("[HomeScreen] Loaded position override:", coords);
+        }
+      } catch (error) {
+        console.error("[HomeScreen] Error loading position override:", error);
+      }
+    };
+    loadPositionOverride();
+  }, []);
+
+  // Update my position on map when it changes
+  useEffect(() => {
+    if (myPosition && mapRef.current) {
+      mapRef.current.updateMyPosition({
+        longitude: myPosition.longitude,
+        latitude: myPosition.latitude,
+        name: "Me",
+      });
+    }
+  }, [myPosition]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1149,16 +1304,19 @@ export const HomeScreen = () => {
       // Fetch initial data
       fetchMapData();
       fetchFriends();
+      fetchMyPosition();
 
       // Set up polling
       const mapInterval = setInterval(fetchMapData, 30000); // Poll every 30 seconds
-      const friendsInterval = setInterval(fetchFriends, 30000); // Poll friends every 30 seconds
+      const friendsInterval = setInterval(fetchFriends, 10000); // Poll friends every 10 seconds
+      const myPositionInterval = setInterval(fetchMyPosition, 10000); // Poll my position every 10 seconds
 
       return () => {
         clearInterval(mapInterval);
         clearInterval(friendsInterval);
+        clearInterval(myPositionInterval);
       };
-    }, [fetchMapData, fetchFriends])
+    }, [fetchMapData, fetchFriends, fetchMyPosition])
   );
   useFocusEffect(
     useCallback(() => {
@@ -1261,8 +1419,46 @@ export const HomeScreen = () => {
         onTilePress={handleTilePress}
         onMarkerPress={handleRecSelect}
         onFriendMarkerPress={handleFriendMarkerPress}
+        onMapLongPress={handleMapLongPress}
         tileInteractionsEnabled={recommendations.length === 0}
       />
+
+      {positionOverride && (
+        <View
+          style={[
+            styles.overrideBanner,
+            colorScheme === "dark"
+              ? styles.overrideBannerDark
+              : styles.overrideBannerLight,
+          ]}
+        >
+          <View style={styles.overrideBannerContent}>
+            <Ionicons
+              name="navigate"
+              size={16}
+              color={colorScheme === "dark" ? "#fbbf24" : "#f59e0b"}
+            />
+            <Text
+              style={[
+                styles.overrideBannerText,
+                colorScheme === "dark" ? styles.textLight : styles.textDark,
+              ]}
+            >
+              Demo Mode: Position Override Active
+            </Text>
+          </View>
+          <Pressable
+            onPress={handleClearPositionOverride}
+            style={styles.overrideBannerButton}
+          >
+            <Ionicons
+              name="close-circle"
+              size={20}
+              color={colorScheme === "dark" ? "#9ca3af" : "#6b7280"}
+            />
+          </Pressable>
+        </View>
+      )}
 
       <Pressable
         style={[
@@ -1302,11 +1498,11 @@ export const HomeScreen = () => {
         colorScheme={colorScheme}
       />
 
-      <FriendPopover
+      <FriendSheet
         friend={selectedFriend}
-        visible={isFriendPopoverVisible}
+        visible={isFriendSheetVisible}
         onClose={() => {
-          setIsFriendPopoverVisible(false);
+          setIsFriendSheetVisible(false);
           setSelectedFriend(null);
         }}
         colorScheme={colorScheme}
@@ -1697,48 +1893,75 @@ const styles = StyleSheet.create({
   recSubtitle: {
     fontSize: 12,
   },
-  popoverOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
-    justifyContent: "center",
+  friendSheetHeader: {
     alignItems: "center",
-  },
-  friendPopover: {
-    borderRadius: 16,
-    padding: 20,
-    minWidth: 200,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  friendPopoverLight: {
-    backgroundColor: "#ffffff",
-  },
-  friendPopoverDark: {
-    backgroundColor: "#1e293b",
-  },
-  friendPopoverHeader: {
     marginBottom: 12,
   },
-  friendPopoverIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "rgba(59, 130, 246, 0.1)",
+  friendSheetIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#3b82f6",
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 3,
+    borderColor: "#ffffff",
   },
-  friendPopoverName: {
-    fontSize: 18,
+  friendSheetInitial: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+  friendSheetName: {
+    fontSize: 20,
     fontWeight: "600",
     marginBottom: 8,
     textAlign: "center",
   },
-  friendPopoverTime: {
+  friendSheetTime: {
     fontSize: 14,
     textAlign: "center",
+    marginBottom: 8,
+  },
+  overrideBanner: {
+    position: "absolute",
+    top: 60,
+    left: 20,
+    right: 80,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  overrideBannerLight: {
+    backgroundColor: "#fef3c7",
+    borderWidth: 1,
+    borderColor: "#fbbf24",
+  },
+  overrideBannerDark: {
+    backgroundColor: "#422006",
+    borderWidth: 1,
+    borderColor: "#f59e0b",
+  },
+  overrideBannerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
+  },
+  overrideBannerText: {
+    fontSize: 12,
+    fontWeight: "600",
+    flex: 1,
+  },
+  overrideBannerButton: {
+    padding: 4,
   },
 });
