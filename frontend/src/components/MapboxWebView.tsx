@@ -55,6 +55,7 @@ export interface MapboxWebViewRef {
   highlightMarker: (markerId: string) => void;
   updateRouteIndicators: (indicators: RouteIndicator[]) => void;
   updateUserLocation: (latitude: number | null, longitude: number | null) => void;
+  updateSecurityPersonnel: (personnel: Array<{ id: string; longitude: number; latitude: number }>) => void;
 }
 
 
@@ -186,6 +187,14 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
             type: "updateUserLocation",
             latitude,
             longitude,
+          })
+        );
+      },
+      updateSecurityPersonnel: (personnel) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "updateSecurityPersonnel",
+            personnel,
           })
         );
       },
@@ -695,6 +704,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
         // Store markers for managing
         let currentMarkers = [];
         let currentRouteXMarkers = [];
+        let currentSecurityPersonnel = [];
 
         // Function to add markers to the map
         function addMarkers(markers) {
@@ -823,6 +833,38 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                 currentRouteXMarkers.push(xMarker);
             });
         }
+
+        // Function to update security personnel markers
+        function updateSecurityPersonnel(personnel) {
+            // Remove existing security personnel markers
+            currentSecurityPersonnel.forEach(marker => marker.remove());
+            currentSecurityPersonnel = [];
+
+            if (!personnel || personnel.length === 0) {
+                return;
+            }
+
+            personnel.forEach(person => {
+                const el = document.createElement('div');
+                el.style.width = '6px';
+                el.style.height = '6px';
+                el.style.borderRadius = '50%';
+                el.style.backgroundColor = '#111827';
+                el.style.border = '1px solid #ffffff';
+                el.style.boxShadow = '0 1px 2px rgba(0,0,0,0.25)';
+                el.style.cursor = 'default';
+
+                const marker = new mapboxgl.Marker(el)
+                    .setLngLat([person.longitude, person.latitude])
+                    .addTo(map);
+
+                currentSecurityPersonnel.push(marker);
+            });
+
+            log('Updated ' + personnel.length + ' security personnel markers');
+        }
+
+        // No police car markers anymore
 
         // Listen for messages from React Native
         window.addEventListener('message', handleMessage);
@@ -1553,6 +1595,9 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                 } else if (data.type === 'updateUserLocation') {
                     log('Updating user location: ' + data.latitude + ', ' + data.longitude);
                     updateUserLocation(data.latitude, data.longitude);
+                } else if (data.type === 'updateSecurityPersonnel') {
+                    log('Updating security personnel with ' + (data.personnel ? data.personnel.length : 0) + ' items');
+                    updateSecurityPersonnel(data.personnel);
                 }
             } catch (e) {
                 log('Error handling message: ' + e.toString());

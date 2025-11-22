@@ -1,10 +1,11 @@
-import React, { useRef, useCallback, useState, useMemo } from 'react';
-import { View, StyleSheet, useColorScheme, Text } from 'react-native';
+import React, { useRef, useCallback, useState, useMemo, useEffect } from 'react';
+import { View, StyleSheet, useColorScheme, Text, Pressable } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { MapboxWebView, MapboxWebViewRef, Marker, RouteIndicator } from '../components/MapboxWebView';
 import oktoberfestTiles from '../data/oktoberfest_tiles.json';
 import wiesnLocations from '../data/wiesn_locations.json';
 import { API_BASE_URL } from '../config';
+import { useSecurityMode } from '../contexts/SecurityModeContext';
 
 const INITIAL_CENTER: [number, number] = [11.5492349, 48.1313557];
 const INITIAL_ZOOM = 14;
@@ -13,6 +14,8 @@ export const SecurityScreen = () => {
     const colorScheme = useColorScheme();
     const mapRef = useRef<MapboxWebViewRef>(null);
     const [tileData, setTileData] = useState<Record<string, number>>({});
+    const { isSecurityMode } = useSecurityMode();
+    const [showSecurityPersonnel, setShowSecurityPersonnel] = useState(true);
     
     // Combine all markers from entrances and U-Bahn stations
     const markers: Marker[] = useMemo(
@@ -33,6 +36,118 @@ export const SecurityScreen = () => {
             return count > 60;
         });
     };
+
+    // Mock security personnel data - many small points moving slowly
+    const [securityPersonnel, setSecurityPersonnel] = useState<Array<{
+        id: string;
+        longitude: number;
+        latitude: number;
+        velocityLng: number;
+        velocityLat: number;
+    }>>([]);
+
+    // Initialize mock data
+    useEffect(() => {
+        const personnel: typeof securityPersonnel = [];
+
+        const entrances = (wiesnLocations.entrances as any[]) || [];
+        const ubahnStations = (wiesnLocations.ubahn_stations as any[]) || [];
+
+        // 1) Around entrances (small groups)
+        entrances.forEach((entrance, idx) => {
+            const [lng, lat] = entrance.coordinates as [number, number];
+            const groupSize = 2;
+            const baseOffset = 0.00015;
+
+            for (let i = 0; i < groupSize; i++) {
+                const angle = (i * (360 / groupSize)) * (Math.PI / 180);
+                const factor = 0.5 + Math.random() * 0.7;
+                personnel.push({
+                    id: `security-entrance-${idx}-${i}`,
+                    longitude: lng + Math.cos(angle) * baseOffset * factor,
+                    latitude: lat + Math.sin(angle) * baseOffset * factor,
+                    velocityLng: (Math.random() - 0.5) * 0.00001,
+                    velocityLat: (Math.random() - 0.5) * 0.00001,
+                });
+            }
+        });
+
+        // 2) Around U-Bahn stations
+        ubahnStations.forEach((station, idx) => {
+            const [lng, lat] = station.coordinates as [number, number];
+            const groupSize = 3;
+            const baseOffset = 0.00018;
+
+            for (let i = 0; i < groupSize; i++) {
+                const angle = (i * (360 / groupSize)) * (Math.PI / 180);
+                const factor = 0.5 + Math.random() * 0.7;
+                personnel.push({
+                    id: `security-ubahn-${idx}-${i}`,
+                    longitude: lng + Math.cos(angle) * baseOffset * factor,
+                    latitude: lat + Math.sin(angle) * baseOffset * factor,
+                    velocityLng: (Math.random() - 0.5) * 0.00001,
+                    velocityLat: (Math.random() - 0.5) * 0.00001,
+                });
+            }
+        });
+
+        // 3) Central areas inside the Wiesn
+        const centralPoints: [number, number][] = [
+            [11.5492, 48.1314],
+            [11.5500, 48.1310],
+            [11.5488, 48.1310],
+        ];
+
+        centralPoints.forEach((center, idx) => {
+            const [lng, lat] = center;
+            const groupSize = 4;
+            const baseOffset = 0.00012;
+
+            for (let i = 0; i < groupSize; i++) {
+                const angle = (i * (360 / groupSize)) * (Math.PI / 180);
+                const factor = 0.5 + Math.random() * 0.8;
+                personnel.push({
+                    id: `security-center-${idx}-${i}`,
+                    longitude: lng + Math.cos(angle) * baseOffset * factor,
+                    latitude: lat + Math.sin(angle) * baseOffset * factor,
+                    velocityLng: (Math.random() - 0.5) * 0.00001,
+                    velocityLat: (Math.random() - 0.5) * 0.00001,
+                });
+            }
+        });
+
+        setSecurityPersonnel(personnel);
+    }, []);
+
+    // Animate security personnel
+    useEffect(() => {
+        if (!isSecurityMode) return;
+
+        const interval = setInterval(() => {
+            if (showSecurityPersonnel) {
+                setSecurityPersonnel(prev => prev.map(person => {
+                    let newLng = person.longitude + person.velocityLng;
+                    let newLat = person.latitude + person.velocityLat;
+                    let newVelLng = person.velocityLng;
+                    let newVelLat = person.velocityLat;
+
+                    // Bounce off boundaries of the Oktoberfest area
+                    if (newLng < 11.547 || newLng > 11.552) newVelLng *= -1;
+                    if (newLat < 48.130 || newLat > 48.133) newVelLat *= -1;
+
+                    return {
+                        ...person,
+                        longitude: newLng,
+                        latitude: newLat,
+                        velocityLng: newVelLng,
+                        velocityLat: newVelLat,
+                    };
+                }));
+            }
+        }, 2000); // Update every 2 seconds for slow movement
+
+        return () => clearInterval(interval);
+    }, [isSecurityMode, showSecurityPersonnel]);
 
     const fetchMapData = useCallback(async () => {
         try {
@@ -272,6 +387,16 @@ export const SecurityScreen = () => {
         }
     }, []);
 
+    // Update security personnel markers when data changes
+    useEffect(() => {
+        if (isSecurityMode && showSecurityPersonnel) {
+            mapRef.current?.updateSecurityPersonnel(securityPersonnel);
+        } else {
+            mapRef.current?.updateSecurityPersonnel([]);
+        }
+    }, [isSecurityMode, showSecurityPersonnel, securityPersonnel]);
+
+
     useFocusEffect(
         useCallback(() => {
             // Reset camera when screen comes into focus
@@ -324,6 +449,34 @@ export const SecurityScreen = () => {
                     Empfohlene Routen
                 </Text>
             </View>
+
+            {/* Security Mode Controls */}
+            {isSecurityMode && (
+                <View style={styles.controlsContainer}>
+                    <Pressable
+                        style={[
+                            styles.controlButton,
+                            colorScheme === 'dark' ? styles.controlButtonDark : styles.controlButtonLight,
+                            showSecurityPersonnel && styles.controlButtonActive
+                        ]}
+                        onPress={() => setShowSecurityPersonnel(!showSecurityPersonnel)}
+                    >
+                        <View style={styles.controlButtonContent}>
+                            <View style={[
+                                styles.securityDot,
+                                showSecurityPersonnel && styles.securityDotActive
+                            ]} />
+                            <Text style={[
+                                styles.controlButtonText,
+                                colorScheme === 'dark' ? styles.textLight : styles.textDark,
+                                showSecurityPersonnel && styles.controlButtonTextActive
+                            ]}>
+                                Security
+                            </Text>
+                        </View>
+                    </Pressable>
+                </View>
+            )}
         </View>
     );
 };
@@ -372,5 +525,57 @@ const styles = StyleSheet.create({
     },
     textDark: {
         color: '#1f2937',
+    },
+    controlsContainer: {
+        position: 'absolute',
+        top: 150,
+        right: 10,
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        gap: 10,
+    },
+    controlButton: {
+        borderRadius: 12,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+        elevation: 5,
+        minWidth: 120,
+    },
+    controlButtonLight: {
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    },
+    controlButtonDark: {
+        backgroundColor: 'rgba(31, 41, 55, 0.95)',
+    },
+    controlButtonActive: {
+        backgroundColor: '#3b82f6',
+    },
+    controlButtonContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+    },
+    securityDot: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        backgroundColor: '#6b7280',
+        borderWidth: 2,
+        borderColor: '#ffffff',
+    },
+    securityDotActive: {
+        backgroundColor: '#ffffff',
+    },
+    controlButtonText: {
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    controlButtonTextActive: {
+        color: '#ffffff',
     },
 });
