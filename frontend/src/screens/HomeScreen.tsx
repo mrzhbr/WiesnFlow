@@ -15,6 +15,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Notifications from "expo-notifications";
 import { MapboxWebView, MapboxWebViewRef } from "../components/MapboxWebView";
 import oktoberfestTiles from "../data/oktoberfest_tiles.json";
 import {
@@ -1511,6 +1512,7 @@ export const HomeScreen = () => {
 
       if (data.tiles) {
         mapRef.current?.updateTileData(data.tiles);
+        setMapTileData(data.tiles);
         // Refresh friends when map data updates (but not during time-series playback)
         if (!startTime) {
           fetchFriends();
@@ -1540,6 +1542,13 @@ export const HomeScreen = () => {
   const [tentOccupancy, setTentOccupancy] = useState<Record<string, number>>(
     {}
   );
+  const [mapTileData, setMapTileData] = useState<Record<string, number>>({});
+  const lastNotificationTime = useRef<number>(0);
+  const manualPositionChangeTimeout = useRef<NodeJS.Timeout | null>(null);
+  const lastManualPosition = useRef<{
+    longitude: number;
+    latitude: number;
+  } | null>(null);
 
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [selectedRecId, setSelectedRecId] = useState<string | null>(null);
@@ -1729,6 +1738,7 @@ export const HomeScreen = () => {
         );
         setPositionOverride(coords);
         setMyPosition(coords);
+        lastManualPosition.current = coords;
         console.log("[HomeScreen] Position override saved:", coords);
         // Update map immediately
         if (mapRef.current) {
@@ -1738,11 +1748,115 @@ export const HomeScreen = () => {
             name: "Me",
           });
         }
+
+        // Clear any existing timeout
+        if (manualPositionChangeTimeout.current) {
+          clearTimeout(manualPositionChangeTimeout.current);
+        }
+
+        // Set timeout to check crowded tile after 10 seconds
+        manualPositionChangeTimeout.current = setTimeout(async () => {
+          if (!coords || Object.keys(mapTileData).length === 0) {
+            return;
+          }
+
+          // Find tile for coordinate (inline function to avoid dependency issues)
+          let tileId: string | null = null;
+          for (const feature of oktoberfestTiles.features) {
+            if (feature.geometry.type === "Polygon") {
+              const featureCoords = feature.geometry.coordinates[0];
+              const lons = featureCoords.map((c: number[]) => c[0]);
+              const lats = featureCoords.map((c: number[]) => c[1]);
+              const minLon = Math.min(...lons);
+              const maxLon = Math.max(...lons);
+              const minLat = Math.min(...lats);
+              const maxLat = Math.max(...lats);
+
+              if (
+                coords.longitude >= minLon &&
+                coords.longitude <= maxLon &&
+                coords.latitude >= minLat &&
+                coords.latitude <= maxLat
+              ) {
+                tileId = feature.properties.tileId || (feature.id as string);
+                break;
+              }
+            }
+          }
+
+          if (!tileId) {
+            return;
+          }
+
+          const tileCount = mapTileData[tileId] || 0;
+
+          // Check if tile is crowded (>30 people)
+          if (tileCount > 30) {
+            // Prevent spam: only send notification if last one was more than 2 minutes ago
+            const now = Date.now();
+            if (now - lastNotificationTime.current < 120000) {
+              return;
+            }
+
+            try {
+              const userId = await AsyncStorage.getItem(UUID_STORAGE_KEY);
+              if (!userId) {
+                return;
+              }
+
+              // Fetch recommendations
+              const url = `${API_BASE_URL}/recommendations?user_id=${userId}&distance_preference=0.5&type=all`;
+              const response = await fetch(url);
+
+              if (!response.ok) {
+                return;
+              }
+
+              const results = await response.json();
+              if (!results || results.length === 0) {
+                return;
+              }
+
+              // Get top recommendation
+              const topRec = results[0];
+              const recCoords = POI_COORDINATES[topRec.tent_name];
+              if (!recCoords) {
+                return;
+              }
+
+              const destination = {
+                longitude: recCoords.lon,
+                latitude: recCoords.lat,
+              };
+              const label = formatName(topRec.tent_name);
+
+              // Send local notification
+              await Notifications.scheduleNotificationAsync({
+                content: {
+                  title: "Crowded Area Detected",
+                  body: `Move to ${label} for a less crowded experience`,
+                  data: { destination, label },
+                },
+                trigger: null, // Send immediately
+              });
+
+              lastNotificationTime.current = now;
+              console.log(
+                `[HomeScreen] Sent crowded tile notification after manual position change for ${label}`
+              );
+            } catch (error) {
+              console.error(
+                "[HomeScreen] Error checking crowded tile after manual position change:",
+                error
+              );
+            }
+          }
+        }, 10000); // 10 seconds delay
       } catch (error) {
         console.error("[HomeScreen] Error saving position override:", error);
       }
     },
-    []
+    [mapTileData]
   );
 
   const handleClearPositionOverride = useCallback(async () => {
@@ -1750,6 +1864,12 @@ export const HomeScreen = () => {
       await AsyncStorage.removeItem(POSITION_OVERRIDE_STORAGE_KEY);
       setPositionOverride(null);
       setMyPosition(null);
+      lastManualPosition.current = null;
+      // Clear any pending timeout
+      if (manualPositionChangeTimeout.current) {
+        clearTimeout(manualPositionChangeTimeout.current);
+        manualPositionChangeTimeout.current = null;
+      }
       console.log("[HomeScreen] Position override cleared");
       // Clear marker from map
       if (mapRef.current) {
@@ -1790,6 +1910,183 @@ export const HomeScreen = () => {
       });
     }
   }, [myPosition]);
+
+  // Helper function to find which tile a coordinate is in
+  const findTileForCoordinate = useCallback(
+    (lon: number, lat: number): string | null => {
+      for (const feature of oktoberfestTiles.features) {
+        if (feature.geometry.type === "Polygon") {
+          const coords = feature.geometry.coordinates[0];
+          const lons = coords.map((c: number[]) => c[0]);
+          const lats = coords.map((c: number[]) => c[1]);
+          const minLon = Math.min(...lons);
+          const maxLon = Math.max(...lons);
+          const minLat = Math.min(...lats);
+          const maxLat = Math.max(...lats);
+
+          if (
+            lon >= minLon &&
+            lon <= maxLon &&
+            lat >= minLat &&
+            lat <= maxLat
+          ) {
+            return feature.properties.tileId || (feature.id as string);
+          }
+        }
+      }
+      return null;
+    },
+    []
+  );
+
+  // Check if user is in a crowded tile and send notification
+  const checkCrowdedTile = useCallback(async () => {
+    if (!myPosition || Object.keys(mapTileData).length === 0) {
+      return;
+    }
+
+    const tileId = findTileForCoordinate(
+      myPosition.longitude,
+      myPosition.latitude
+    );
+
+    if (!tileId) {
+      return;
+    }
+
+    const tileCount = mapTileData[tileId] || 0;
+
+    // Check if tile is crowded (>30 people)
+    if (tileCount > 30) {
+      // Prevent spam: only send notification if last one was more than 2 minutes ago
+      const now = Date.now();
+      if (now - lastNotificationTime.current < 120000) {
+        return;
+      }
+
+      try {
+        const userId = await AsyncStorage.getItem(UUID_STORAGE_KEY);
+        if (!userId) {
+          return;
+        }
+
+        // Fetch recommendations
+        const url = `${API_BASE_URL}/recommendations?user_id=${userId}&distance_preference=0.5&type=all`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+          return;
+        }
+
+        const results = await response.json();
+        if (!results || results.length === 0) {
+          return;
+        }
+
+        // Get top recommendation
+        const topRec = results[0];
+        const coords = POI_COORDINATES[topRec.tent_name];
+        if (!coords) {
+          return;
+        }
+
+        const destination = {
+          longitude: coords.lon,
+          latitude: coords.lat,
+        };
+        const label = formatName(topRec.tent_name);
+
+        // Send local notification
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "Crowded Area Detected",
+            body: `Move to ${label} for a less crowded experience`,
+            data: { destination, label },
+          },
+          trigger: null, // Send immediately
+        });
+
+        lastNotificationTime.current = now;
+        console.log(`[HomeScreen] Sent crowded tile notification for ${label}`);
+      } catch (error) {
+        console.error("[HomeScreen] Error checking crowded tile:", error);
+      }
+    }
+  }, [myPosition, mapTileData, findTileForCoordinate]);
+
+  // Request notification permissions and set up notification handler
+  useEffect(() => {
+    const setupNotifications = async () => {
+      // Request permissions
+      const { status: existingStatus } =
+        await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== "granted") {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== "granted") {
+        console.log("[HomeScreen] Notification permissions not granted");
+        return;
+      }
+
+      // Set up notification handler
+      Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowBanner: true,
+          shouldShowList: true,
+          shouldPlaySound: true,
+          shouldSetBadge: false,
+        }),
+      });
+    };
+
+    setupNotifications();
+
+    // Handle notification tap
+    const subscription = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        const data = response.notification.request.content.data as {
+          destination?: { longitude: number; latitude: number };
+          label?: string;
+        };
+        if (
+          data?.destination &&
+          data.destination.longitude &&
+          data.destination.latitude
+        ) {
+          // Navigate to destination
+          if (myPosition) {
+            mapRef.current?.showRoute(myPosition, data.destination);
+            setActiveNavigation({
+              destination: data.destination,
+              label: data.label || "Destination",
+            });
+          } else {
+            Alert.alert(
+              "Set your position first",
+              "Long press on the map to drop a pin for your current location."
+            );
+          }
+        }
+      }
+    );
+
+    return () => subscription.remove();
+  }, [myPosition]);
+
+  // Periodically check for crowded tiles (every 30 seconds)
+  useEffect(() => {
+    if (!myPosition || Object.keys(mapTileData).length === 0) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      checkCrowdedTile();
+    }, 30000); // Check every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [myPosition, mapTileData, checkCrowdedTile]);
 
   useFocusEffect(
     useCallback(() => {
@@ -2074,6 +2371,11 @@ export const HomeScreen = () => {
     setIsRouteShowing(true);
   }, [assembleFinalPoint, myPosition]);
 
+  const handleEndRoute = useCallback(() => {
+    mapRef.current?.hideRoute();
+    setIsRouteShowing(false);
+  }, []);
+
   const handleTimeSeriesToggle = useCallback(() => {
     if (isTimeSeriesActive) {
       // Turning off time-series mode - fetch current data
@@ -2087,6 +2389,76 @@ export const HomeScreen = () => {
       setIsTimeSeriesActive(true);
     }
   }, [isTimeSeriesActive, fetchMapData]);
+
+  const handleTestNotification = useCallback(async () => {
+    try {
+      // Check and request permissions first
+      const { status: existingStatus } =
+        await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== "granted") {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== "granted") {
+        Alert.alert(
+          "Permission Required",
+          "Please enable notifications in your device settings to test notifications."
+        );
+        return;
+      }
+
+      const userId = await AsyncStorage.getItem(UUID_STORAGE_KEY);
+      if (!userId) {
+        Alert.alert("Error", "No user ID found");
+        return;
+      }
+
+      // Fetch recommendations
+      const url = `${API_BASE_URL}/recommendations?user_id=${userId}&distance_preference=0.5&type=all`;
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        Alert.alert("Error", "Failed to fetch recommendations");
+        return;
+      }
+
+      const results = await response.json();
+      if (!results || results.length === 0) {
+        Alert.alert("Error", "No recommendations available");
+        return;
+      }
+
+      // Get top recommendation
+      const topRec = results[0];
+      const coords = POI_COORDINATES[topRec.tent_name];
+      if (!coords) {
+        Alert.alert("Error", "No coordinates found for recommendation");
+        return;
+      }
+
+      const destination = {
+        longitude: coords.lon,
+        latitude: coords.lat,
+      };
+      const label = formatName(topRec.tent_name);
+
+      // Send test notification
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Crowded Area Detected",
+          body: `Move to ${label} for a less crowded experience`,
+          data: { destination, label },
+        },
+        trigger: null, // Send immediately
+      });
+
+      console.log(`[HomeScreen] Test notification sent for ${label}`);
+    } catch (error) {
+      console.error("[HomeScreen] Error sending test notification:", error);
+      Alert.alert("Error", `Failed to send test notification: ${error}`);
+    }
+  }, []);
 
   // Handle automatic playback
   useEffect(() => {
@@ -2259,6 +2631,19 @@ export const HomeScreen = () => {
             <Ionicons name="search" size={30} color="#16a34a" />
           </Pressable>
         )}
+        {!isSecurityMode && (
+          <Pressable
+            style={[
+              styles.actionButton,
+              colorScheme === "dark"
+                ? styles.actionButtonDark
+                : styles.actionButtonLight,
+            ]}
+            onPress={handleTestNotification}
+          >
+            <Ionicons name="notifications" size={30} color="#f59e0b" />
+          </Pressable>
+        )}
         <Pressable
           style={[
             styles.actionButton,
@@ -2281,8 +2666,8 @@ export const HomeScreen = () => {
           style={[
             styles.navigationButton,
             colorScheme === "dark"
-              ? styles.navigationButtonDark
-              : styles.navigationButtonLight,
+              ? styles.navigationButtonGreenDark
+              : styles.navigationButtonGreenLight,
             !myPosition && styles.navigationButtonDisabled,
           ]}
           onPress={handleShowRoute}
@@ -2292,6 +2677,20 @@ export const HomeScreen = () => {
           <Text style={styles.navigationButtonText}>
             {!myPosition ? "Set Position First" : "Show Route"}
           </Text>
+        </Pressable>
+      )}
+      {isAssembleActive && assembleFinalPoint && isRouteShowing && (
+        <Pressable
+          style={[
+            styles.navigationButton,
+            colorScheme === "dark"
+              ? styles.navigationButtonDark
+              : styles.navigationButtonLight,
+          ]}
+          onPress={handleEndRoute}
+        >
+          <Ionicons name="close-circle" size={24} color="#ffffff" />
+          <Text style={styles.navigationButtonText}>End Route</Text>
         </Pressable>
       )}
       {activeNavigation && (
@@ -3033,6 +3432,12 @@ const styles = StyleSheet.create({
   },
   navigationButtonDark: {
     backgroundColor: "#dc2626",
+  },
+  navigationButtonGreenLight: {
+    backgroundColor: "#16a34a",
+  },
+  navigationButtonGreenDark: {
+    backgroundColor: "#22c55e",
   },
   navigationButtonDisabled: {
     backgroundColor: "#9ca3af",
