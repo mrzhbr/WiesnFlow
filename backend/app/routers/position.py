@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi_cache import caches
 from fastapi_cache.backends.redis import CACHE_KEY, RedisCacheBackend
 from app.cache_backend import InMemoryCacheBackend
-from typing import Any
+from typing import Any, Optional
 import uuid
 import asyncio
 
@@ -155,21 +155,33 @@ def _insert_or_update_poi_data(counts_dict: dict):
             print(f"Error inserting/updating POI data for {name}: {e}")
 
 
-def _calculate_map_data() -> dict:
+def _calculate_map_data(start_time: Optional[datetime] = None, duration: int = 1) -> dict:
     """
     Helper function to calculate map data (tile counts and tent counts).
     This is the actual aggregation logic that gets cached.
-    Also inserts aggregated POI data into the 'pois' table.
+    Also inserts aggregated POI data into the 'pois' table (only for standard calls).
+    
+    Args:
+        start_time: The end time for the query (defaults to now). Entries must be older than this.
+        duration: Duration in hours for the time window (defaults to 1). Entries must not be younger than start_time - duration.
     """
     supabase = get_supabase_client()
     
-    # Calculate timestamp for one hour ago
-    one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
-    one_hour_ago_iso = one_hour_ago.isoformat()
+    # Check if this is a standard call (default parameters)
+    is_standard_call = (start_time is None and duration == 1)
     
-    # Get all positions from the last hour, ordered by last_update desc
-    # Then group by uid in Python - first occurrence of each uid is the latest
-    response = supabase.table("positions").select("*").gte("last_update", one_hour_ago_iso).order("last_update", desc=True).execute()
+    # Use provided start_time or default to now
+    if start_time is None:
+        start_time = datetime.now(timezone.utc)
+    
+    # Calculate the start of the time window (start_time - duration)
+    time_window_start = start_time - timedelta(hours=duration)
+    time_window_start_iso = time_window_start.isoformat()
+    start_time_iso = start_time.isoformat()
+    
+    # Get all positions that are older than start_time but not younger than start_time - duration
+    # Filter: (start_time - duration) <= last_update < start_time
+    response = supabase.table("positions").select("*").gte("last_update", time_window_start_iso).lt("last_update", start_time_iso).order("last_update", desc=True).execute()
     # Group by uid - since results are ordered by last_update desc,
     # the first entry we encounter for each uid is the latest one
     latest_by_user = []
@@ -187,8 +199,10 @@ def _calculate_map_data() -> dict:
     tent_counts = assign_positions_to_tents(latest_by_user)
     
     # Insert or update aggregated data in the database (both tents and tiles)
-    _insert_or_update_poi_data(tent_counts)
-    _insert_or_update_poi_data(tile_counts)
+    # Only do this for standard calls (default parameters)
+    if is_standard_call:
+        _insert_or_update_poi_data(tent_counts)
+        _insert_or_update_poi_data(tile_counts)
     
     return {
         "tiles": tile_counts,
@@ -196,14 +210,14 @@ def _calculate_map_data() -> dict:
     }
 
 
-async def _calculate_and_cache_map_data(minute_key: str):
+async def _calculate_and_cache_map_data(minute_key: str, start_time: Optional[datetime] = None, duration: int = 1):
     """
     Async function to calculate map data and cache it.
     This runs in the background while we return the old cached value.
     """
     try:
         # Calculate the new map data (includes both tiles and tents)
-        map_data = _calculate_map_data()
+        map_data = _calculate_map_data(start_time=start_time, duration=duration)
         
         # Cache it with the minute key
         cache = caches.get(CACHE_KEY)
@@ -224,7 +238,9 @@ async def _calculate_and_cache_map_data(minute_key: str):
 async def get_map(
     background_tasks: BackgroundTasks,
     bypass_cache: bool = True,
-    cache = Depends(get_cache)
+    cache = Depends(get_cache),
+    duration: int = 1,
+    start_time: Optional[datetime] = None,
 ):
     """
     Get the latest position entry for each user (by uid) that is at most one hour old.
@@ -266,7 +282,7 @@ async def get_map(
     
     # If bypass_cache is True, always calculate fresh data
     if bypass_cache:
-        map_data = _calculate_map_data()
+        map_data = _calculate_map_data(start_time=start_time, duration=duration)
         # Still cache the result for future requests
         await safe_cache_set(current_minute_key, map_data, expire=3600)
         return map_data
@@ -282,14 +298,25 @@ async def get_map(
     previous_cached = await safe_cache_get(previous_minute_key)
     
     # Start background task to calculate and cache the new minute
-    background_tasks.add_task(_calculate_and_cache_map_data, current_minute_key)
+    background_tasks.add_task(_calculate_and_cache_map_data, current_minute_key, start_time, duration)
     
     # Return previous cached value if available, otherwise calculate synchronously
     if previous_cached is not None:
         return previous_cached
     
     # No cache available - calculate synchronously (fallback for first request)
-    map_data = _calculate_map_data()
+    map_data = _calculate_map_data(start_time=start_time, duration=duration)
     await safe_cache_set(current_minute_key, map_data, expire=3600)
     return map_data
+
+@router.get("/map/{poi_id}")
+async def get_poi(poi_id: str, duration: int = 1):
+    """
+    Get a specific POI by ID.
+    """
+    minutes_ago = duration * 60
+    minutes_ago_iso = (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).isoformat()
+    supabase = get_supabase_client()
+    response = supabase.table("pois").select("*").eq("name", poi_id).gte("created_at", minutes_ago_iso).order("created_at", desc=False).execute()
+    return response.data
     
