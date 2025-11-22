@@ -3,6 +3,7 @@ from app.database import get_supabase_client
 from app.models.position import Position, PositionCreate, PositionResponse
 from app.tiles import assign_positions_to_tiles
 from datetime import datetime, timezone, timedelta
+import uuid
 router = APIRouter()
 
 
@@ -59,7 +60,7 @@ async def update_position(position: PositionCreate):
         # Prepare the data to insert/update
         data = {
             "position": postgis_point,
-            "uid": position.uid
+            "uid": position.uid,
         }
         
         if should_update and entry_id:

@@ -17,7 +17,7 @@ BOTTOM_RIGHT_LAT = 48.126496
 BOTTOM_RIGHT_LON = 11.553518
 
 # Tile size in meters
-TILE_SIZE_METERS = 50
+TILE_SIZE_METERS = 100
 
 # Conversion factors at Munich's latitude (~48.13°)
 # 1 degree latitude ≈ 111,320 meters

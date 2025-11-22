@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional
-
+import uuid
 
 class Position(BaseModel):
     """
@@ -106,7 +106,7 @@ class PositionCreate(BaseModel):
     )
     uid: str = Field(
         ...,
-        description="User identifier"
+        description="User identifier",
     )
     
     def to_position(self) -> Position:
