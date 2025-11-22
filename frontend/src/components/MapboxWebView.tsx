@@ -11,6 +11,17 @@ export interface Marker {
     lines?: string[];
 }
 
+export interface RouteIndicator {
+    id: string;
+    from: string; // ubahn station id
+    to: string; // entrance id
+    fromCoordinates: [number, number]; // U-Bahn coordinates
+    toCoordinates: [number, number];   // entrance coordinates
+    routeCoordinates?: [number, number][]; // optional full path geometry
+    isAvailable: boolean; // true = green route, false = red route
+    monitoredTiles: string[]; // tiles to monitor for overcrowding
+}
+
 interface MapboxWebViewProps {
     accessToken: string;
     style?: any;
@@ -19,12 +30,14 @@ interface MapboxWebViewProps {
     colorScheme?: 'light' | 'dark' | null | undefined;
     onTilePress?: (tile: { tileId: string; row: number; col: number }) => void;
     markers?: Marker[];
+    routeIndicators?: RouteIndicator[];
 }
 
 export interface MapboxWebViewRef {
     flyTo: (center: [number, number], zoom?: number) => void;
     updateTileData: (tiles: Record<string, number>) => void;
     updateMarkers: (markers: Marker[]) => void;
+    updateRouteIndicators: (routeIndicators: RouteIndicator[]) => void;
 }
 
 export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
@@ -34,7 +47,8 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
     initialZoom = 9,
     colorScheme = 'light',
     onTilePress,
-    markers = []
+    markers = [],
+    routeIndicators = []
 }, ref) => {
     const webViewRef = useRef<WebView>(null);
     const mapStyle = colorScheme === 'dark'
@@ -59,6 +73,12 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
             webViewRef.current?.postMessage(JSON.stringify({
                 type: 'updateMarkers',
                 markers
+            }));
+        },
+        updateRouteIndicators: (routeIndicators) => {
+            webViewRef.current?.postMessage(JSON.stringify({
+                type: 'updateRouteIndicators',
+                routeIndicators
             }));
         }
     }));
@@ -348,6 +368,37 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                     }
                 });
 
+                // 5. Route indicators source + line layer
+                if (!map.getSource('route-indicators')) {
+                    map.addSource('route-indicators', {
+                        type: 'geojson',
+                        data: {
+                            type: 'FeatureCollection',
+                            features: []
+                        }
+                    });
+
+                    map.addLayer({
+                        id: 'route-indicators-line',
+                        type: 'line',
+                        source: 'route-indicators',
+                        layout: {
+                            'line-cap': 'round',
+                            'line-join': 'round'
+                        },
+                        paint: {
+                            'line-width': 4,
+                            'line-color': [
+                                'case',
+                                ['boolean', ['get', 'isAvailable'], false],
+                                '#22c55e', // green when available
+                                '#dc2626'  // red when overcrowded
+                            ],
+                            'line-opacity': 0.9
+                        }
+                    });
+                }
+
                 map.on('click', 'oktoberfest-tiles-fill', function(e) {
                     try {
                         const feature = e.features && e.features[0];
@@ -392,6 +443,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
 
         // Store markers for managing
         let currentMarkers = [];
+        let currentRouteXMarkers = [];
 
         // Function to add markers to the map
         function addMarkers(markers) {
@@ -434,6 +486,91 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
             });
 
             log('Added ' + markers.length + ' markers to map');
+        }
+
+        // Function to add/update route indicators as colored lines
+        function addRouteIndicators(routeIndicators) {
+            const source = map.getSource('route-indicators');
+            if (!source) {
+                return;
+            }
+
+            if (!routeIndicators || routeIndicators.length === 0) {
+                // Clear line source
+                source.setData({
+                    type: 'FeatureCollection',
+                    features: []
+                });
+
+                // Remove any existing X markers
+                currentRouteXMarkers.forEach(marker => marker.remove());
+                currentRouteXMarkers = [];
+                return;
+            }
+
+            const geojson = {
+                type: 'FeatureCollection',
+                features: routeIndicators.map(indicator => ({
+                    type: 'Feature',
+                    properties: {
+                        id: indicator.id,
+                        from: indicator.from,
+                        to: indicator.to,
+                        isAvailable: !!indicator.isAvailable,
+                    },
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: (indicator.routeCoordinates && indicator.routeCoordinates.length > 1)
+                            ? indicator.routeCoordinates
+                            : [
+                                indicator.fromCoordinates,
+                                indicator.toCoordinates,
+                            ]
+                    }
+                }))
+            };
+
+            source.setData(geojson);
+            log('Updated ' + routeIndicators.length + ' route indicators');
+
+            // Remove old X markers
+            currentRouteXMarkers.forEach(marker => marker.remove());
+            currentRouteXMarkers = [];
+
+            // Add red X marker at route midpoint for unavailable routes
+            routeIndicators.forEach(indicator => {
+                if (indicator.isAvailable) {
+                    return;
+                }
+
+                const coords = (indicator.routeCoordinates && indicator.routeCoordinates.length > 1)
+                    ? indicator.routeCoordinates
+                    : [indicator.fromCoordinates, indicator.toCoordinates];
+
+                if (!coords || !coords.length) {
+                    return;
+                }
+
+                const midIndex = Math.floor(coords.length / 2);
+                const midCoord = coords[midIndex];
+                if (!midCoord || midCoord.length < 2) {
+                    return;
+                }
+
+                const el = document.createElement('div');
+                el.style.width = '32px';
+                el.style.height = '32px';
+                el.style.fontSize = '26px';
+                el.style.cursor = 'default';
+                el.style.textAlign = 'center';
+                el.style.lineHeight = '32px';
+
+                const xMarker = new mapboxgl.Marker(el)
+                    .setLngLat(midCoord)
+                    .addTo(map);
+
+                currentRouteXMarkers.push(xMarker);
+            });
         }
 
         // Listen for messages from React Native
@@ -483,6 +620,9 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                 } else if (data.type === 'updateMarkers') {
                     log('Updating markers with ' + (data.markers ? data.markers.length : 0) + ' items');
                     addMarkers(data.markers);
+                } else if (data.type === 'updateRouteIndicators') {
+                    log('Updating route indicators with ' + (data.routeIndicators ? data.routeIndicators.length : 0) + ' items');
+                    addRouteIndicators(data.routeIndicators);
                 }
             } catch (e) {
                 log('Error handling message: ' + e.toString());
