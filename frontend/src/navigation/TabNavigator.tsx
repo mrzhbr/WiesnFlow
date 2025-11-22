@@ -1,7 +1,6 @@
 import React from 'react';
 import { Text, StyleSheet, Platform, useColorScheme, View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { BlurView } from 'expo-blur';
 import { HomeScreen } from '../screens/HomeScreen';
 import {LocationTrackerScreen} from '../screens/LocationTrackerScreen';
 
@@ -16,32 +15,26 @@ export const TabNavigator = () => {
             screenOptions={({ route }) => ({
                 headerShown: false,
                 tabBarShowLabel: false,
-                tabBarBackground: () => (
-                    Platform.OS === 'ios' ? (
-                        <BlurView
-                            tint="systemThickMaterial"
-                            style={StyleSheet.absoluteFill}
-                        />
-                    ) : undefined
-                ),
                 tabBarStyle: {
                     position: 'absolute',
-                    bottom: 40,
-                    left: 40,
-                    right: 40,
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
                     elevation: 5,
-                    backgroundColor: Platform.OS === 'ios' ? 'transparent' : (isDark ? '#1a1a1a' : '#ffffff'),
-                    borderRadius: 35,
-                    height: 70,
+                    backgroundColor: isDark ? '#1a1a1a' : '#ffffff',
+                    opacity: 0.98,
+                    borderTopLeftRadius: 16,
+                    borderTopRightRadius: 16,
+                    height: 90,
                     shadowColor: '#000',
                     shadowOffset: {
                         width: 0,
-                        height: 4,
+                        height: -2,
                     },
-                    shadowOpacity: 0.25,
-                    shadowRadius: 3.5,
+                    shadowOpacity: 0.1,
+                    shadowRadius: 4,
                     borderTopWidth: 0,
-                    overflow: 'hidden',
+                    paddingTop: 10,
                 },
                 tabBarIcon: ({ focused }) => {
                     return (
