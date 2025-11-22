@@ -4,6 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { BlurView } from 'expo-blur';
 import { HomeScreen } from '../screens/HomeScreen';
 import {LocationTrackerScreen} from '../screens/LocationTrackerScreen';
+import { FriendsScreen } from '../screens/FriendsScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -55,7 +56,7 @@ export const TabNavigator = () => {
                             borderRadius: 25,
                         }}>
                             <Text style={{ fontSize: 30 }}>
-                                {route.name === 'Home' ? '🗺️' : '📍'}
+                                {route.name === 'Home' ? '🗺️' : route.name === 'Location' ? '📍' : '👥'}
                             </Text>
                         </View>
                     );
@@ -64,6 +65,7 @@ export const TabNavigator = () => {
         >
             <Tab.Screen name="Home" component={HomeScreen} />
             <Tab.Screen name="Location" component={LocationTrackerScreen} />
+            <Tab.Screen name="Friends" component={FriendsScreen} />
         </Tab.Navigator>
     );
 };

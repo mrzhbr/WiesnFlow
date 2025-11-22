@@ -9,8 +9,11 @@ import {
 } from "react-native";
 import * as Location from "expo-location";
 import * as Crypto from "expo-crypto";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL =
+  process.env.API_BASE_URL || "https://wiesnflow.onrender.com";
+const UUID_STORAGE_KEY = "@wiesnflow:user_uuid";
 
 export const LocationTrackerScreen: React.FC = () => {
   const colorScheme = useColorScheme();
@@ -69,6 +72,26 @@ export const LocationTrackerScreen: React.FC = () => {
     };
   }, []);
 
+  // Load UUID on mount (should always exist since App.tsx initializes it)
+  useEffect(() => {
+    const loadUuid = async () => {
+      try {
+        const uuid = await AsyncStorage.getItem(UUID_STORAGE_KEY);
+        if (uuid) {
+          console.log("[LocationTracker] Loaded UID:", uuid);
+          setSharingId(uuid);
+        } else {
+          console.warn(
+            "[LocationTracker] UUID not found in storage - this should not happen"
+          );
+        }
+      } catch (error) {
+        console.error("[LocationTracker] Error loading UUID:", error);
+      }
+    };
+    loadUuid();
+  }, []);
+
   const handleToggleSharing = async () => {
     if (!isSharing) {
       console.log("[LocationTracker] Starting location sharing...");
@@ -88,21 +111,39 @@ export const LocationTrackerScreen: React.FC = () => {
 
         let uid = sharingId;
         if (!uid) {
-          uid = Crypto.randomUUID();
-          console.log("[LocationTracker] Generated new UID:", uid);
+          // UUID should always exist (initialized in App.tsx), but fallback if needed
+          uid = await AsyncStorage.getItem(UUID_STORAGE_KEY);
+          if (!uid) {
+            // Last resort: generate new UUID (should not happen)
+            uid = Crypto.randomUUID();
+            await AsyncStorage.setItem(UUID_STORAGE_KEY, uid);
+            console.warn(
+              "[LocationTracker] Generated new UID as fallback:",
+              uid
+            );
+          }
           setSharingId(uid);
+          console.log("[LocationTracker] Loaded UID from storage:", uid);
         } else {
           console.log("[LocationTracker] Using existing UID:", uid);
         }
 
         console.log("[LocationTracker] Getting current position...");
         const current = await Location.getCurrentPositionAsync({});
-        console.log("[LocationTracker] Current position:", current.coords.latitude, current.coords.longitude);
+        console.log(
+          "[LocationTracker] Current position:",
+          current.coords.latitude,
+          current.coords.longitude
+        );
         setLocation(current);
 
         try {
-          console.log("[LocationTracker] Posting initial position to API...");
-          const response = await fetch(`${API_BASE_URL}/position`, {
+          const url = `${API_BASE_URL}/position`;
+          console.log(
+            "[LocationTracker] Posting initial position to API:",
+            url
+          );
+          const response = await fetch(url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -111,21 +152,48 @@ export const LocationTrackerScreen: React.FC = () => {
               uid,
             }),
           });
-          console.log("[LocationTracker] Initial position posted, status:", response.status);
-        } catch (error) {
-          console.log("[LocationTracker] ERROR posting initial position:", error);
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(
+              `[LocationTracker] HTTP error ${response.status}:`,
+              errorText
+            );
+          } else {
+            console.log(
+              "[LocationTracker] Initial position posted, status:",
+              response.status
+            );
+          }
+        } catch (error: any) {
+          console.error(
+            "[LocationTracker] ERROR posting initial position:",
+            error
+          );
+          console.error("Error details:", {
+            message: error?.message,
+            stack: error?.stack,
+            name: error?.name,
+          });
         }
 
-        console.log("[LocationTracker] Setting up 10-second interval for location updates...");
+        console.log(
+          "[LocationTracker] Setting up 10-second interval for location updates..."
+        );
         const intervalId = setInterval(async () => {
           try {
             const updated = await Location.getCurrentPositionAsync({});
-            console.log("[LocationTracker] Updated position:", updated.coords.latitude, updated.coords.longitude);
+            console.log(
+              "[LocationTracker] Updated position:",
+              updated.coords.latitude,
+              updated.coords.longitude
+            );
             setLocation(updated);
 
             if (uid) {
               try {
-                const response = await fetch(`${API_BASE_URL}/position`, {
+                const url = `${API_BASE_URL}/position`;
+                const response = await fetch(url, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
@@ -134,9 +202,29 @@ export const LocationTrackerScreen: React.FC = () => {
                     uid,
                   }),
                 });
-                console.log("[LocationTracker] Position update posted, status:", response.status);
-              } catch (error) {
-                console.log("[LocationTracker] ERROR posting updated position:", error);
+
+                if (!response.ok) {
+                  const errorText = await response.text();
+                  console.error(
+                    `[LocationTracker] HTTP error ${response.status}:`,
+                    errorText
+                  );
+                } else {
+                  console.log(
+                    "[LocationTracker] Position update posted, status:",
+                    response.status
+                  );
+                }
+              } catch (error: any) {
+                console.error(
+                  "[LocationTracker] ERROR posting updated position:",
+                  error
+                );
+                console.error("Error details:", {
+                  message: error?.message,
+                  stack: error?.stack,
+                  name: error?.name,
+                });
               }
             }
           } catch (error) {
@@ -163,7 +251,6 @@ export const LocationTrackerScreen: React.FC = () => {
       }
 
       setIsSharing(false);
-      setSharingId(null);
       setLocation(null);
       console.log("[LocationTracker] Location sharing stopped");
     }
@@ -219,6 +306,16 @@ export const LocationTrackerScreen: React.FC = () => {
           >
             <Text style={styles.buttonText}>{buttonLabel}</Text>
           </Pressable>
+          {isSharing && sharingId && (
+            <Text
+              style={[
+                styles.uuidText,
+                isDarkMode ? styles.textMutedDark : styles.textMutedLight,
+              ]}
+            >
+              {sharingId}
+            </Text>
+          )}
         </View>
       </View>
 
@@ -320,6 +417,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     letterSpacing: 0.5,
+  },
+  uuidText: {
+    marginTop: 16,
+    fontSize: 11,
+    fontFamily: "monospace",
+    textAlign: "center",
   },
   textMutedLight: {
     color: "#6b7280",
