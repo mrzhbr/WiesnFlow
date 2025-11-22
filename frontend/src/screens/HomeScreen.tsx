@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MapboxWebView, MapboxWebViewRef } from '../components/MapboxWebView';
 import oktoberfestTiles from '../data/oktoberfest_tiles.json';
-import { API_BASE_URL, UUID_STORAGE_KEY } from '../config';
+import { API_BASE_URL, UUID_STORAGE_KEY, IS_TRACKING_KEY } from '../config';
 
 const INITIAL_CENTER: [number, number] = [11.5492349, 48.1313557];
 const INITIAL_ZOOM = 14;
@@ -755,6 +755,21 @@ export const HomeScreen = () => {
     
     const [recommendations, setRecommendations] = useState<any[]>([]);
 	const [selectedRecId, setSelectedRecId] = useState<string | null>(null);
+    const [isTracking, setIsTracking] = useState(false);
+
+    useFocusEffect(
+        useCallback(() => {
+            const checkTracking = async () => {
+                try {
+                    const val = await AsyncStorage.getItem(IS_TRACKING_KEY);
+                    setIsTracking(val === 'true');
+                } catch (e) {
+                    console.error("Error reading tracking state:", e);
+                }
+            };
+            checkTracking();
+        }, [])
+    );
 
     const handleRecSelect = useCallback((id: string) => {
         setSelectedRecId(id);
@@ -885,12 +900,14 @@ export const HomeScreen = () => {
                 tileInteractionsEnabled={recommendations.length === 0}
 			/>
 
-			<Pressable
-				style={[styles.actionButton, colorScheme === 'dark' ? styles.actionButtonDark : styles.actionButtonLight]}
-				onPress={() => setIsActionPopupVisible(true)}
-			>
-				<Ionicons name="search" size={30} color="#16a34a" />
-			</Pressable>
+			{isTracking && (
+                <Pressable
+                    style={[styles.actionButton, colorScheme === 'dark' ? styles.actionButtonDark : styles.actionButtonLight]}
+                    onPress={() => setIsActionPopupVisible(true)}
+                >
+                    <Ionicons name="search" size={30} color="#16a34a" />
+                </Pressable>
+            )}
 
 			<ActionPopup
 				visible={isActionPopupVisible}
