@@ -101,6 +101,13 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                 lon
             }));
         }
+        updateUserLocation: (lat, lon) => {
+            webViewRef.current?.postMessage(JSON.stringify({
+                type: 'updateUserLocation',
+                lat,
+                lon
+            }));
+        }
     }));
 
     useEffect(() => {
