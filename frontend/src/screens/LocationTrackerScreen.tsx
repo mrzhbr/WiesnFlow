@@ -304,16 +304,6 @@ export const LocationTrackerScreen: React.FC = () => {
           >
             <Text style={styles.buttonText}>{buttonLabel}</Text>
           </Pressable>
-          {isSharing && sharingId && (
-            <Text
-              style={[
-                styles.uuidText,
-                isDarkMode ? styles.textMutedDark : styles.textMutedLight,
-              ]}
-            >
-              {sharingId}
-            </Text>
-          )}
         </View>
       </View>
 
