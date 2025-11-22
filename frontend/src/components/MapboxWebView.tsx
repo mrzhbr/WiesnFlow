@@ -1,83 +1,103 @@
-import React, { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { WebView } from 'react-native-webview';
-import oktoberfestTiles from '../data/oktoberfest_tiles.json';
+import React, {
+  useRef,
+  useEffect,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
+import { StyleSheet, View } from "react-native";
+import { WebView } from "react-native-webview";
+import oktoberfestTiles from "../data/oktoberfest_tiles.json";
 
 interface MapboxWebViewProps {
-    accessToken: string;
-    style?: any;
-    initialCenter?: [number, number];
-    initialZoom?: number;
-    colorScheme?: 'light' | 'dark' | null | undefined;
-    onTilePress?: (tile: { tileId: string; row: number; col: number }) => void;
+  accessToken: string;
+  style?: any;
+  initialCenter?: [number, number];
+  initialZoom?: number;
+  colorScheme?: "light" | "dark" | null | undefined;
+  onTilePress?: (tile: { tileId: string; row: number; col: number }) => void;
 }
 
 export interface MapboxWebViewRef {
-    flyTo: (center: [number, number], zoom?: number) => void;
-    updateTileData: (tiles: Record<string, number>) => void;
+  flyTo: (center: [number, number], zoom?: number) => void;
+  updateTileData: (tiles: Record<string, number>) => void;
 }
 
-export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
-    accessToken,
-    style,
-    initialCenter = [-74.5, 40],
-    initialZoom = 9,
-    colorScheme = 'light',
-    onTilePress
-}, ref) => {
+export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
+  (
+    {
+      accessToken,
+      style,
+      initialCenter = [-74.5, 40],
+      initialZoom = 9,
+      colorScheme = "light",
+      onTilePress,
+    },
+    ref
+  ) => {
     const webViewRef = useRef<WebView>(null);
-    const mapStyle = colorScheme === 'dark'
-        ? 'mapbox://styles/mapbox/dark-v11'
-        : 'mapbox://styles/mapbox/streets-v12';
+    const mapStyle =
+      colorScheme === "dark"
+        ? "mapbox://styles/mapbox/dark-v11"
+        : "mapbox://styles/mapbox/streets-v12";
+    const API_BASE_URL =
+      process.env.API_BASE_URL || "https://wiesnflow.onrender.com";
 
     useImperativeHandle(ref, () => ({
-        flyTo: (center, zoom) => {
-            webViewRef.current?.postMessage(JSON.stringify({
-                type: 'flyTo',
-                center,
-                zoom: zoom ?? initialZoom
-            }));
-        },
-        updateTileData: (tiles) => {
-            webViewRef.current?.postMessage(JSON.stringify({
-                type: 'updateTileData',
-                tiles
-            }));
-        }
+      flyTo: (center, zoom) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "flyTo",
+            center,
+            zoom: zoom ?? initialZoom,
+          })
+        );
+      },
+      updateTileData: (tiles) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "updateTileData",
+            tiles,
+          })
+        );
+      },
     }));
 
     useEffect(() => {
-        if (webViewRef.current) {
-            webViewRef.current.postMessage(JSON.stringify({
-                type: 'setStyle',
-                style: mapStyle
-            }));
-        }
+      if (webViewRef.current) {
+        webViewRef.current.postMessage(
+          JSON.stringify({
+            type: "setStyle",
+            style: mapStyle,
+          })
+        );
+      }
     }, [mapStyle]);
 
     const handleWebViewMessage = (event: any) => {
-        try {
-            const raw = event.nativeEvent.data;
-            if (raw === 'mapLoaded') {
-                webViewRef.current?.postMessage(JSON.stringify({
-                    type: 'setStyle',
-                    style: mapStyle
-                }));
-            } else if (typeof raw === 'string' && raw.startsWith('log:')) {
-                console.log('MapboxWebView Log:', raw);
-            } else if (typeof raw === 'string') {
-                try {
-                    const message = JSON.parse(raw);
-                    if (message.type === 'tilePress' && message.tile && onTilePress) {
-                        onTilePress(message.tile);
-                    }
-                } catch (parseError) {
-                    console.error('Error parsing WebView message', parseError);
-                }
+      try {
+        const raw = event.nativeEvent.data;
+        if (raw === "mapLoaded") {
+          webViewRef.current?.postMessage(
+            JSON.stringify({
+              type: "setStyle",
+              style: mapStyle,
+            })
+          );
+        } else if (typeof raw === "string" && raw.startsWith("log:")) {
+          console.log("MapboxWebView Log:", raw);
+        } else if (typeof raw === "string") {
+          try {
+            const message = JSON.parse(raw);
+            if (message.type === "tilePress" && message.tile && onTilePress) {
+              onTilePress(message.tile);
             }
-        } catch (e) {
-            console.error('Error handling WebView message', e);
+          } catch (parseError) {
+            console.error("Error parsing WebView message", parseError);
+          }
         }
+      } catch (e) {
+        console.error("Error handling WebView message", e);
+      }
     };
 
     const htmlContent = `
@@ -161,7 +181,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
             type: 'FeatureCollection',
             features: pointsFeatures
         };
-        const API_BASE_URL = 'http://localhost:8000';
+        const API_BASE_URL = '${API_BASE_URL}';
         let tileIntensityMap = {};
 
         mapboxgl.accessToken = '${accessToken}';
@@ -195,12 +215,18 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
         // Fetch tile data from API
         async function fetchTileData() {
             try {
-                const response = await fetch(API_BASE_URL + '/map');
+                const url = API_BASE_URL + '/map';
+                log('Fetching tile data from: ' + url);
+                const response = await fetch(url);
+                
                 if (!response.ok) {
-                    log('API response not OK: ' + response.status);
+                    const errorText = await response.text();
+                    log('API response not OK: ' + response.status + ' - ' + errorText);
                     return;
                 }
+                
                 const data = await response.json();
+                log('Successfully fetched tile data');
                 
                 // Extract tiles from response (backend returns {tiles: {...}, tents: {...}})
                 const tiles = data.tiles || {};
@@ -227,6 +253,11 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                 updateTileColors();
             } catch (error) {
                 log('Error fetching tile data: ' + error.toString());
+                log('Error details: ' + JSON.stringify({
+                    message: error?.message,
+                    name: error?.name,
+                    stack: error?.stack
+                }));
             }
         }
 
@@ -430,25 +461,26 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
     `;
 
     return (
-    <View style={[styles.container, style]}>
+      <View style={[styles.container, style]}>
         <WebView
-            ref={webViewRef}
-            originWhitelist={['*']}
-            source={{ html: htmlContent }}
-            style={styles.webview}
-            scrollEnabled={false}
-            onMessage={handleWebViewMessage}
+          ref={webViewRef}
+          originWhitelist={["*"]}
+          source={{ html: htmlContent }}
+          style={styles.webview}
+          scrollEnabled={false}
+          onMessage={handleWebViewMessage}
         />
-    </View>
+      </View>
     );
-});
+  }
+);
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        overflow: 'hidden',
-    },
-    webview: {
-        flex: 1,
-    },
+  container: {
+    flex: 1,
+    overflow: "hidden",
+  },
+  webview: {
+    flex: 1,
+  },
 });

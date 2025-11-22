@@ -5,25 +5,29 @@ FastAPI backend application for WiesnFlow with Supabase database integration.
 ## Setup
 
 1. **Install dependencies:**
+
    ```bash
    pip install -r requirements.txt
    ```
 
 2. **Configure environment variables:**
+
    - Copy `.env.example` to `.env`
    - Fill in your Supabase credentials:
      - `SUPABASE_URL`: Your Supabase project URL
      - `SUPABASE_KEY`: Your Supabase anon/public key
 
 3. **Run the application:**
+
    ```bash
    uvicorn main:app --reload
    ```
 
    The API will be available at:
-   - API: http://localhost:8000
-   - Docs: http://localhost:8000/docs
-   - ReDoc: http://localhost:8000/redoc
+
+   - API: http://https://wiesnflow.onrender.com/
+   - Docs: http://https://wiesnflow.onrender.com//docs
+   - ReDoc: http://https://wiesnflow.onrender.com//redoc
 
 ## Project Structure
 
@@ -55,7 +59,7 @@ backend/
 ## Development
 
 The application uses:
+
 - **FastAPI** for the web framework
 - **Supabase** for database and backend services
 - **Uvicorn** as the ASGI server
-
