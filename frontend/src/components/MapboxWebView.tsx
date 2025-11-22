@@ -60,8 +60,6 @@ export interface MapboxWebViewRef {
   ) => void;
   hideRoute: () => void;
   updateMarkers: (markers: any[]) => void;
-  addFriendMarkers: (friends: any[]) => void;
-  highlightMarker: (markerId: string) => void;
   updateRouteIndicators: (indicators: RouteIndicator[]) => void;
   updateUserLocation: (
     latitude: number | null,
@@ -859,7 +857,6 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
         let tileInteractionsEnabled = true;
 
         let lastMarkerClickTime = 0;
-        let currentMarkers = [];
 
         function updateMarkers(markers) {
             // Remove existing markers
