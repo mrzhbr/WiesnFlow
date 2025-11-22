@@ -20,7 +20,7 @@ const generateUuid = (): string => {
 
 const API_BASE_URL = "http://localhost:8000";
 
-export const PlaceholderScreen: React.FC = () => {
+export const LocationTrackerScreen: React.FC = () => {
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === "dark";
 
@@ -224,10 +224,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   screenLight: {
-    backgroundColor: "#f9fafb",
+    backgroundColor: "#efe9e1",
   },
   screenDark: {
-    backgroundColor: "#020617",
+    backgroundColor: "#343332",
   },
   centerContent: {
     flex: 1,

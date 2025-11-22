@@ -13,6 +13,7 @@ interface MapboxWebViewProps {
 
 export interface MapboxWebViewRef {
     flyTo: (center: [number, number], zoom?: number) => void;
+    updateTileData: (tiles: Record<string, number>) => void;
 }
 
 export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
@@ -33,6 +34,12 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                 type: 'flyTo',
                 center,
                 zoom: zoom ?? initialZoom
+            }));
+        },
+        updateTileData: (tiles) => {
+            webViewRef.current?.postMessage(JSON.stringify({
+                type: 'updateTileData',
+                tiles
             }));
         }
     }));
@@ -92,7 +99,6 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
         const map = new mapboxgl.Map({
           container: 'map',
           style: '${mapStyle}',
-          style: '${mapStyle}',
           center: [${initialCenter[0]}, ${initialCenter[1]}],
           zoom: ${initialZoom}
         });
@@ -109,8 +115,21 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                     type: 'fill',
                     source: 'oktoberfest-tiles',
                     paint: {
-                        'fill-color': '#2563eb',
-                        'fill-opacity': 0.4
+                        'fill-color': [
+                            'interpolate',
+                            ['linear'],
+                            ['coalesce', ['feature-state', 'density'], 0],
+                            0, '#2563eb',
+                            10, '#ef4444'
+                        ],
+                        'fill-opacity': [
+                            'interpolate',
+                            ['linear'],
+                            ['coalesce', ['feature-state', 'density'], 0],
+                            0, 0.1,
+                            1, 0.4,
+                            10, 0.7
+                        ]
                     }
                 });
 
@@ -158,6 +177,22 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                         zoom: data.zoom,
                         essential: true
                     });
+                } else if (data.type === 'updateTileData') {
+                    log('Updating tile data with ' + Object.keys(data.tiles).length + ' entries');
+                    const incomingTiles = data.tiles;
+                    
+                    // Iterate over all features in the source to ensure we update everything (including resetting to 0)
+                    if (tilesGeoJSON && tilesGeoJSON.features) {
+                         tilesGeoJSON.features.forEach(feature => {
+                             if (feature.id) {
+                                 const count = incomingTiles[feature.id] || 0;
+                                 map.setFeatureState(
+                                     { source: 'oktoberfest-tiles', id: feature.id },
+                                     { density: count }
+                                 );
+                             }
+                         });
+                    }
                 }
             } catch (e) {
                 log('Error handling message: ' + e.toString());
@@ -172,12 +207,10 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
         <View style={[styles.container, style]}>
             <WebView
                 ref={webViewRef}
-                ref={webViewRef}
                 originWhitelist={['*']}
                 source={{ html: htmlContent }}
                 style={styles.webview}
                 scrollEnabled={false}
-                onMessage={handleWebViewMessage}
                 onMessage={handleWebViewMessage}
             />
         </View>
