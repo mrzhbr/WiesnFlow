@@ -23,11 +23,9 @@ const API_BASE_URL =
 const UUID_STORAGE_KEY = "@wiesnflow:user_uuid";
 
 type Friend = {
-  user_id: string;
+  friend_id: string;
   accepted: boolean;
-  is_sent_by_me: boolean;
-  position: { type: string; coordinates: [number, number] } | null;
-  last_update: string | null;
+  is_sender: boolean;
 };
 
 export const FriendsScreen: React.FC = () => {
@@ -91,7 +89,7 @@ export const FriendsScreen: React.FC = () => {
 
     setIsLoading(true);
     try {
-      const url = `${API_BASE_URL}/friends?user_id=${uuid}`;
+      const url = `${API_BASE_URL}/friends/list?user_id=${uuid}`;
       console.log("[FriendsScreen] Fetching friends from:", url);
       const response = await fetch(url);
 
@@ -386,22 +384,22 @@ export const FriendsScreen: React.FC = () => {
     );
   };
 
-  const getStatusLabel = (accepted: boolean, isSentByMe: boolean) => {
+  const getStatusLabel = (accepted: boolean, isSender: boolean) => {
     if (accepted) {
       return "Accepted";
-    } else if (isSentByMe) {
-      // Current user sent the request (is user_id) - show Pending
+    } else if (isSender) {
+      // Current user sent the request - show Pending
       return "Pending";
     } else {
-      // Current user received the request (is friend_id) - will show buttons instead
+      // Current user received the request - will show buttons instead
       return "Request received";
     }
   };
 
-  const getStatusColor = (accepted: boolean, isSentByMe: boolean) => {
+  const getStatusColor = (accepted: boolean, isSender: boolean) => {
     if (accepted) {
       return "#22c55e";
-    } else if (isSentByMe) {
+    } else if (isSender) {
       // Current user sent the request - show orange/yellow for pending
       return "#f59e0b";
     } else {
@@ -489,11 +487,14 @@ export const FriendsScreen: React.FC = () => {
             </View>
           ) : (
             friends.map((friend) => (
-              <View key={friend.user_id} style={[styles.friendCard, cardStyle]}>
+              <View
+                key={friend.friend_id}
+                style={[styles.friendCard, cardStyle]}
+              >
                 <View style={styles.friendHeader}>
                   <View style={styles.friendAvatar}>
                     <Text style={styles.friendAvatarText}>
-                      {friend.user_id.charAt(0).toUpperCase()}
+                      {friend.friend_id.charAt(0).toUpperCase()}
                     </Text>
                   </View>
                   <View style={styles.friendInfo}>
@@ -501,7 +502,7 @@ export const FriendsScreen: React.FC = () => {
                       style={[styles.friendId, textPrimaryStyle]}
                       numberOfLines={1}
                     >
-                      {friend.user_id}
+                      {friend.friend_id}
                     </Text>
                     <View style={styles.statusRow}>
                       <View
@@ -511,7 +512,7 @@ export const FriendsScreen: React.FC = () => {
                             backgroundColor:
                               getStatusColor(
                                 friend.accepted,
-                                friend.is_sent_by_me
+                                friend.is_sender
                               ) + "20",
                           },
                         ]}
@@ -522,34 +523,26 @@ export const FriendsScreen: React.FC = () => {
                             {
                               color: getStatusColor(
                                 friend.accepted,
-                                friend.is_sent_by_me
+                                friend.is_sender
                               ),
                             },
                           ]}
                         >
-                          {getStatusLabel(
-                            friend.accepted,
-                            friend.is_sent_by_me
-                          )}
+                          {getStatusLabel(friend.accepted, friend.is_sender)}
                         </Text>
                       </View>
-                      {friend.accepted && friend.position && (
-                        <Text style={[styles.friendStatus, textMutedStyle]}>
-                          {" • "}📍 Online
-                        </Text>
-                      )}
                     </View>
                   </View>
                 </View>
-                {/* Show Accept/Decline buttons when accepted=false AND current user is friend_id (received the request) */}
-                {!friend.accepted && !friend.is_sent_by_me && (
+                {/* Show Accept/Decline buttons when accepted=false AND current user received the request (is_sender=false) */}
+                {!friend.accepted && !friend.is_sender && (
                   <View style={styles.actionButtons}>
                     <Pressable
                       style={({ pressed }) => [
                         styles.acceptButton,
                         pressed && styles.buttonPressed,
                       ]}
-                      onPress={() => handleAcceptFriend(friend.user_id)}
+                      onPress={() => handleAcceptFriend(friend.friend_id)}
                     >
                       <Text style={styles.acceptButtonText}>Accept</Text>
                     </Pressable>
@@ -558,7 +551,7 @@ export const FriendsScreen: React.FC = () => {
                         styles.declineButton,
                         pressed && styles.buttonPressed,
                       ]}
-                      onPress={() => handleDeclineFriend(friend.user_id)}
+                      onPress={() => handleDeclineFriend(friend.friend_id)}
                     >
                       <Text style={styles.declineButtonText}>Decline</Text>
                     </Pressable>
