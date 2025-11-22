@@ -23,8 +23,8 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
     colorScheme = 'light'
 }, ref) => {
     const webViewRef = useRef<WebView>(null);
-    const mapStyle = colorScheme === 'dark' 
-        ? 'mapbox://styles/mapbox/dark-v11' 
+    const mapStyle = colorScheme === 'dark'
+        ? 'mapbox://styles/mapbox/dark-v11'
         : 'mapbox://styles/mapbox/streets-v12';
 
     useImperativeHandle(ref, () => ({
@@ -57,7 +57,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                     style: mapStyle
                 }));
             } else if (data.startsWith('log:')) {
-                 console.log('MapboxWebView Log:', data);
+                console.log('MapboxWebView Log:', data);
             }
         } catch (e) {
             console.error('Error handling WebView message', e);
@@ -87,6 +87,8 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
         }
 
         const tilesGeoJSON = ${JSON.stringify(oktoberfestTiles)};
+        const API_BASE_URL = 'http://localhost:8000';
+        let tileIntensityMap = {};
 
         mapboxgl.accessToken = '${accessToken}';
         const map = new mapboxgl.Map({
@@ -95,6 +97,82 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
           center: [${initialCenter[0]}, ${initialCenter[1]}],
           zoom: ${initialZoom}
         });
+
+        // Function to get color based on intensity (0-100)
+        function getColorForIntensity(intensity) {
+            if (intensity === null || intensity === undefined || intensity === 0) {
+                return 'rgba(59, 130, 246, 0.3)'; // Light blue for no data
+            }
+            
+            // Gradient from yellow to orange to red based on intensity
+            if (intensity < 20) {
+                return 'rgba(34, 197, 94, 0.6)'; // Green for low
+            } else if (intensity < 40) {
+                return 'rgba(234, 179, 8, 0.6)'; // Yellow for medium-low
+            } else if (intensity < 60) {
+                return 'rgba(249, 115, 22, 0.7)'; // Orange for medium
+            } else if (intensity < 80) {
+                return 'rgba(239, 68, 68, 0.8)'; // Red for high
+            } else {
+                return 'rgba(220, 38, 38, 0.9)'; // Dark red for very high
+            }
+        }
+
+        // Fetch tile data from API
+        async function fetchTileData() {
+            try {
+                const response = await fetch(API_BASE_URL + '/map');
+                if (!response.ok) {
+                    log('API response not OK: ' + response.status);
+                    return;
+                }
+                const data = await response.json();
+                
+                // Extract tiles from response (backend returns {tiles: {...}, tents: {...}})
+                const tiles = data.tiles || {};
+                
+                // Create a map of tile ID to count, then normalize to intensity (0-100)
+                tileIntensityMap = {};
+                
+                // Find max count for normalization
+                let maxCount = 0;
+                Object.values(tiles).forEach(count => {
+                    if (count > maxCount) maxCount = count;
+                });
+                
+                // Convert counts to intensity (0-100 scale)
+                // If maxCount is 0, all intensities will be 0
+                Object.keys(tiles).forEach(tileId => {
+                    const count = tiles[tileId];
+                    // Normalize to 0-100, with a minimum threshold to show some color
+                    const intensity = maxCount > 0 ? Math.min(100, (count / maxCount) * 100) : 0;
+                    tileIntensityMap[tileId] = intensity;
+                });
+                
+                log('Fetched ' + Object.keys(tiles).length + ' tiles from API, max count: ' + maxCount);
+                updateTileColors();
+            } catch (error) {
+                log('Error fetching tile data: ' + error.toString());
+            }
+        }
+
+        // Update tile colors based on intensity data
+        function updateTileColors() {
+            if (!map.getSource('oktoberfest-tiles')) {
+                return;
+            }
+
+            // Update the GeoJSON data with intensity values
+            const updatedGeoJSON = JSON.parse(JSON.stringify(tilesGeoJSON));
+            updatedGeoJSON.features.forEach(feature => {
+                const tileId = feature.id || feature.properties.tileId;
+                const intensity = tileIntensityMap[tileId];
+                feature.properties.intensity = intensity !== undefined ? intensity : 0;
+            });
+
+            // Update the source data
+            map.getSource('oktoberfest-tiles').setData(updatedGeoJSON);
+        }
 
         function addTiles() {
             if (!map.getSource('oktoberfest-tiles')) {
@@ -108,8 +186,16 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                     type: 'fill',
                     source: 'oktoberfest-tiles',
                     paint: {
-                        'fill-color': '#2563eb',
-                        'fill-opacity': 0.4
+                        'fill-color': [
+                            'case',
+                            ['==', ['get', 'intensity'], null], 'rgba(59, 130, 246, 0.3)',
+                            ['<', ['get', 'intensity'], 20], 'rgba(34, 197, 94, 0.6)',
+                            ['<', ['get', 'intensity'], 40], 'rgba(234, 179, 8, 0.6)',
+                            ['<', ['get', 'intensity'], 60], 'rgba(249, 115, 22, 0.7)',
+                            ['<', ['get', 'intensity'], 80], 'rgba(239, 68, 68, 0.8)',
+                            'rgba(220, 38, 38, 0.9)'
+                        ],
+                        'fill-opacity': 1
                     }
                 });
 
@@ -119,10 +205,14 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                     source: 'oktoberfest-tiles',
                     paint: {
                         'line-color': '#1d4ed8',
-                        'line-width': 1
+                        'line-width': 1,
+                        'line-opacity': 0.5
                     }
                 });
                 log('Tiles added');
+                
+                // Fetch initial data
+                fetchTileData();
             }
         }
 
@@ -135,9 +225,11 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
 
         // Re-add tiles whenever style data loads or changes
         map.on('styledata', function() {
-            // log('Style data loaded'); // This can be spammy
             addTiles();
         });
+
+        // Poll API every 5 seconds for updates
+        setInterval(fetchTileData, 5000);
 
         // Listen for messages from React Native
         window.addEventListener('message', handleMessage);
