@@ -8,7 +8,9 @@ import {
   PanResponder,
   Pressable,
   Modal,
+  DimensionValue,
 } from "react-native";
+
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -50,7 +52,10 @@ const formatName = (name: string) => {
     .join(" ");
 };
 
-const getOccupancyInfo = (count: number, isDark: boolean) => {
+const getOccupancyInfo = (
+  count: number,
+  isDark: boolean
+): { label: string; color: string; width: DimensionValue } => {
   if (count <= 50) {
     return {
       label: "Empty",
