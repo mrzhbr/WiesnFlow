@@ -1,8 +1,10 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, useColorScheme } from 'react-native';
 import { MapboxWebView } from '../components/MapboxWebView';
 
 export const HomeScreen = () => {
+    const colorScheme = useColorScheme();
+
     return (
         <View style={styles.container}>
             <MapboxWebView
@@ -10,6 +12,7 @@ export const HomeScreen = () => {
                 style={styles.map}
                 initialCenter={[11.5492349, 48.1313557]}
                 initialZoom={14}
+                colorScheme={colorScheme}
             />
         </View>
     );

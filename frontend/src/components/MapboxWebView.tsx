@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
@@ -7,14 +7,45 @@ interface MapboxWebViewProps {
     style?: any;
     initialCenter?: [number, number];
     initialZoom?: number;
+    colorScheme?: 'light' | 'dark' | null | undefined;
 }
 
 export const MapboxWebView: React.FC<MapboxWebViewProps> = ({
     accessToken,
     style,
     initialCenter = [-74.5, 40],
-    initialZoom = 9
+    initialZoom = 9,
+    colorScheme = 'light'
 }) => {
+    const webViewRef = useRef<WebView>(null);
+    const mapStyle = colorScheme === 'dark' 
+        ? 'mapbox://styles/mapbox/dark-v11' 
+        : 'mapbox://styles/mapbox/streets-v12';
+
+    useEffect(() => {
+        if (webViewRef.current) {
+            webViewRef.current.postMessage(JSON.stringify({
+                type: 'setStyle',
+                style: mapStyle
+            }));
+        }
+    }, [mapStyle]);
+
+    const handleWebViewMessage = (event: any) => {
+        try {
+            const data = event.nativeEvent.data;
+            if (data === 'mapLoaded') {
+                // Send initial style when map reports loaded
+                webViewRef.current?.postMessage(JSON.stringify({
+                    type: 'setStyle',
+                    style: mapStyle
+                }));
+            }
+        } catch (e) {
+            console.error('Error handling WebView message', e);
+        }
+    };
+
     const htmlContent = `
     <!DOCTYPE html>
     <html>
@@ -34,10 +65,33 @@ export const MapboxWebView: React.FC<MapboxWebViewProps> = ({
         mapboxgl.accessToken = '${accessToken}';
         const map = new mapboxgl.Map({
           container: 'map',
-          style: 'mapbox://styles/mapbox/streets-v12',
+          style: '${mapStyle}',
           center: [${initialCenter[0]}, ${initialCenter[1]}],
           zoom: ${initialZoom}
         });
+
+        map.on('load', function() {
+            if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage('mapLoaded');
+            }
+        });
+
+        // Listen for messages from React Native
+        // iOS
+        window.addEventListener('message', handleMessage);
+        // Android
+        document.addEventListener('message', handleMessage);
+
+        function handleMessage(event) {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'setStyle') {
+                    map.setStyle(data.style);
+                }
+            } catch (e) {
+                // console.error('Error handling message', e);
+            }
+        }
       </script>
     </body>
     </html>
@@ -46,10 +100,12 @@ export const MapboxWebView: React.FC<MapboxWebViewProps> = ({
     return (
         <View style={[styles.container, style]}>
             <WebView
+                ref={webViewRef}
                 originWhitelist={['*']}
                 source={{ html: htmlContent }}
                 style={styles.webview}
                 scrollEnabled={false}
+                onMessage={handleWebViewMessage}
             />
         </View>
     );
