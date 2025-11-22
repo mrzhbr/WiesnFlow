@@ -16,7 +16,7 @@ import { MapboxWebView, MapboxWebViewRef } from "../components/MapboxWebView";
 import oktoberfestTiles from "../data/oktoberfest_tiles.json";
 import {
   API_BASE_URL,
-  UUID_STORAGE_KEY,
+  UUID_STORAGE_KEY, IS_TRACKING_KEY,
   FRIEND_NAMES_STORAGE_KEY,
 } from "../config";
 
@@ -1050,6 +1050,21 @@ export const HomeScreen = () => {
     null
   );
   const [isFriendPopoverVisible, setIsFriendPopoverVisible] = useState(false);
+    const [isTracking, setIsTracking] = useState(false);
+
+    useFocusEffect(
+        useCallback(() => {
+            const checkTracking = async () => {
+                try {
+                    const val = await AsyncStorage.getItem(IS_TRACKING_KEY);
+                    setIsTracking(val === 'true');
+                } catch (e) {
+                    console.error("Error reading tracking state:", e);
+                }
+            };
+            checkTracking();
+        }, [])
+    );
 
   const handleRecSelect = useCallback((id: string) => {
     setSelectedRecId(id);
@@ -1264,17 +1279,14 @@ export const HomeScreen = () => {
         tileInteractionsEnabled={recommendations.length === 0}
       />
 
-      <Pressable
-        style={[
-          styles.actionButton,
-          colorScheme === "dark"
-            ? styles.actionButtonDark
-            : styles.actionButtonLight,
-        ]}
-        onPress={() => setIsActionPopupVisible(true)}
-      >
-        <Ionicons name="search" size={30} color="#16a34a" />
-      </Pressable>
+			{isTracking && (
+                <Pressable
+                    style={[styles.actionButton, colorScheme === 'dark' ? styles.actionButtonDark : styles.actionButtonLight]}
+                    onPress={() => setIsActionPopupVisible(true)}
+                >
+                    <Ionicons name="search" size={30} color="#16a34a" />
+                </Pressable>
+            )}
 
       <ActionPopup
         visible={isActionPopupVisible}

@@ -10,7 +10,7 @@ import {
 import * as Location from "expo-location";
 import * as Crypto from "expo-crypto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { API_BASE_URL, UUID_STORAGE_KEY } from "../config";
+import { API_BASE_URL, UUID_STORAGE_KEY, IS_TRACKING_KEY } from "../config";
 
 export const LocationTrackerScreen: React.FC = () => {
   const colorScheme = useColorScheme();
@@ -27,6 +27,11 @@ export const LocationTrackerScreen: React.FC = () => {
   );
 
   const pulse = useRef(new Animated.Value(0)).current;
+
+  // Sync tracking state to storage
+  useEffect(() => {
+    AsyncStorage.setItem(IS_TRACKING_KEY, isSharing ? 'true' : 'false');
+  }, [isSharing]);
 
   useEffect(() => {
     let animation: Animated.CompositeAnimation | null = null;
