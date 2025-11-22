@@ -21,7 +21,7 @@ export const SecurityModeHeader: React.FC = () => {
       {/* Toggle Switch */}
       <View style={[
         styles.toggleContainer,
-        { top: isSecurityMode ? 94 : (Platform.OS === 'ios' ? 60 : 50) }
+        { top: isSecurityMode ? 94 : (Platform.OS === 'ios' ? 50 : 35) }
       ]}>
         <View style={[
           styles.toggleWrapper,
@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
   },
   toggleContainer: {
     position: 'absolute',
-    left: 6,
+    right: 12,
     zIndex: 1001,
   },
   toggleWrapper: {

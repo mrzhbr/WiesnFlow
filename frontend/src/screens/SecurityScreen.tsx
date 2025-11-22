@@ -288,7 +288,7 @@ export const SecurityScreen = () => {
             mapRef.current?.updateTileData(initialTiles);
             
             // Update markers
-            mapRef.current?.updateMarkers(markers);
+            mapRef.current?.addMarkers(markers);
             
             // Fetch initial data
             fetchMapData();
@@ -309,7 +309,6 @@ export const SecurityScreen = () => {
                 initialCenter={INITIAL_CENTER}
                 initialZoom={INITIAL_ZOOM}
                 colorScheme={colorScheme}
-                markers={markers}
             />
         </View>
     );

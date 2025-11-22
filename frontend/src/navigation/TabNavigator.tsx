@@ -6,6 +6,7 @@ import {LocationTrackerScreen} from '../screens/LocationTrackerScreen';
 import { SecurityScreen } from '../screens/SecurityScreen';
 import { SecurityModeHeader } from '../components/SecurityModeHeader';
 import { useSecurityMode } from '../contexts/SecurityModeContext';
+import { FriendsScreen } from '../screens/FriendsScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -54,7 +55,11 @@ export const TabNavigator = () => {
                                 borderRadius: 25,
                             }}>
                                 <Text style={{ fontSize: 30 }}>
-                                    {route.name === 'Home' ? '🗺️' : route.name === 'Security' ? '❗' : '📍'}
+                                    {route.name === 'Home' ? '🗺️' : 
+                                     route.name === 'Location' ? '📍' : 
+                                     route.name === 'Security' ? '❗' : 
+                                     route.name === 'Friends' ? '👥' :
+                                     '�'}
                                 </Text>
                             </View>
                         );
@@ -63,8 +68,10 @@ export const TabNavigator = () => {
             >
                 <Tab.Screen name="Home" component={HomeScreen} />
                 <Tab.Screen name="Location" component={LocationTrackerScreen} />
-                {isSecurityMode && (
+                {isSecurityMode ? (
                     <Tab.Screen name="Security" component={SecurityScreen} />
+                ) : (
+                    <Tab.Screen name="Friends" component={FriendsScreen} />
                 )}
             </Tab.Navigator>
         </>

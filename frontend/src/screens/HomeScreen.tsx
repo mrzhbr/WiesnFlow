@@ -3,6 +3,7 @@ import { View, StyleSheet, useColorScheme, Text, Animated, PanResponder } from '
 import { useFocusEffect } from '@react-navigation/native';
 import { MapboxWebView, MapboxWebViewRef } from '../components/MapboxWebView';
 import oktoberfestTiles from '../data/oktoberfest_tiles.json';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const INITIAL_CENTER: [number, number] = [11.5492349, 48.1313557];
 const INITIAL_ZOOM = 14;
@@ -395,6 +396,7 @@ const TileDetailsCard: React.FC<TileDetailsCardProps & { isVisible: boolean; onC
 export const HomeScreen = () => {
     const colorScheme = useColorScheme();
     const mapRef = useRef<MapboxWebViewRef>(null);
+    const [userLocation, setUserLocation] = useState<{latitude: number; longitude: number; isSharing: boolean} | null>(null);
 
     const fetchMapData = useCallback(async () => {
         try {
@@ -415,6 +417,38 @@ export const HomeScreen = () => {
 	const [selectedTile, setSelectedTile] = useState<SelectedTile>(null);
 	const [isSheetVisible, setIsSheetVisible] = useState(false);
 
+    // Poll AsyncStorage for user location
+    useEffect(() => {
+        const checkUserLocation = async () => {
+            try {
+                const locationData = await AsyncStorage.getItem('userLocation');
+                console.log('[HomeScreen] Raw location data from AsyncStorage:', locationData);
+                if (locationData) {
+                    const location = JSON.parse(locationData);
+                    console.log('[HomeScreen] Parsed location:', location);
+                    if (location.isSharing && location.latitude && location.longitude) {
+                        console.log('[HomeScreen] Updating map with location:', location.latitude, location.longitude);
+                        setUserLocation(location);
+                        mapRef.current?.updateUserLocation(location.latitude, location.longitude);
+                    } else {
+                        console.log('[HomeScreen] Location sharing not active or missing coordinates');
+                        setUserLocation(null);
+                        mapRef.current?.updateUserLocation(null, null);
+                    }
+                } else {
+                    console.log('[HomeScreen] No location data in AsyncStorage');
+                }
+            } catch (error) {
+                console.error('[HomeScreen] Error reading user location from AsyncStorage:', error);
+            }
+        };
+        
+        checkUserLocation();
+        const interval = setInterval(checkUserLocation, 2000); // Check every 2 seconds
+        
+        return () => clearInterval(interval);
+    }, []);
+    
     useFocusEffect(
         useCallback(() => {
             // Reset camera when screen comes into focus

@@ -1,7 +1,24 @@
-import React, { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { WebView } from 'react-native-webview';
-import oktoberfestTiles from '../data/oktoberfest_tiles.json';
+import React, {
+  useRef,
+  useEffect,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
+import { StyleSheet, View } from "react-native";
+import { WebView } from "react-native-webview";
+import oktoberfestTiles from "../data/oktoberfest_tiles.json";
+
+interface MapboxWebViewProps {
+  accessToken: string;
+  style?: any;
+  initialCenter?: [number, number];
+  initialZoom?: number;
+  colorScheme?: "light" | "dark" | null | undefined;
+  onTilePress?: (tile: { tileId: string; row: number; col: number }) => void;
+  onMarkerPress?: (markerId: string) => void;
+  onFriendMarkerPress?: (friendId: string) => void;
+  tileInteractionsEnabled?: boolean;
+}
 
 export interface Marker {
     id: string;
@@ -11,110 +28,178 @@ export interface Marker {
     lines?: string[];
 }
 
-export interface RouteIndicator {
-    id: string;
-    from: string; // ubahn station id
-    to: string; // entrance id
-    fromCoordinates: [number, number]; // U-Bahn coordinates
-    toCoordinates: [number, number];   // entrance coordinates
-    routeCoordinates?: [number, number][]; // optional full path geometry
-    isAvailable: boolean; // true = green route, false = red route
-    monitoredTiles: string[]; // tiles to monitor for overcrowding
-}
 
-interface MapboxWebViewProps {
-    accessToken: string;
-    style?: any;
-    initialCenter?: [number, number];
-    initialZoom?: number;
-    colorScheme?: 'light' | 'dark' | null | undefined;
-    onTilePress?: (tile: { tileId: string; row: number; col: number }) => void;
-    markers?: Marker[];
-    routeIndicators?: RouteIndicator[];
+export interface RouteIndicator {
+  id: string;
+  from: string;
+  to: string;
+  fromCoordinates: [number, number];
+  toCoordinates: [number, number];
+  routeCoordinates?: [number, number][];
+  isAvailable: boolean;
+  monitoredTiles: string[];
 }
 
 export interface MapboxWebViewRef {
-    flyTo: (center: [number, number], zoom?: number) => void;
-    updateTileData: (tiles: Record<string, number>) => void;
-    updateMarkers: (markers: Marker[]) => void;
-    updateRouteIndicators: (routeIndicators: RouteIndicator[]) => void;
+  flyTo: (center: [number, number], zoom?: number) => void;
+  updateTileData: (tiles: Record<string, number>) => void;
+  addMarkers: (markers: any[]) => void;
+  updateMarkers: (markers: any[]) => void;
+  addFriendMarkers: (friends: any[]) => void;
+  highlightMarker: (markerId: string) => void;
+  updateRouteIndicators: (indicators: RouteIndicator[]) => void;
+  updateUserLocation: (latitude: number | null, longitude: number | null) => void;
 }
 
-export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
-    accessToken,
-    style,
-    initialCenter = [-74.5, 40],
-    initialZoom = 9,
-    colorScheme = 'light',
-    onTilePress,
-    markers = [],
-    routeIndicators = []
-}, ref) => {
+export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
+  (
+    {
+      accessToken,
+      style,
+      initialCenter = [-74.5, 40],
+      initialZoom = 9,
+      colorScheme = "light",
+      onTilePress,
+      onMarkerPress,
+      onFriendMarkerPress,
+      tileInteractionsEnabled = true,
+    },
+    ref
+  ) => {
     const webViewRef = useRef<WebView>(null);
-    const mapStyle = colorScheme === 'dark'
-        ? 'mapbox://styles/mapbox/dark-v11'
-        : 'mapbox://styles/mapbox/streets-v12';
+    const mapStyle =
+      colorScheme === "dark"
+        ? "mapbox://styles/mapbox/dark-v11"
+        : "mapbox://styles/mapbox/streets-v12";
+    const API_BASE_URL =
+      process.env.API_BASE_URL || "https://wiesnflow.onrender.com";
 
     useImperativeHandle(ref, () => ({
-        flyTo: (center, zoom) => {
-            webViewRef.current?.postMessage(JSON.stringify({
-                type: 'flyTo',
-                center,
-                zoom: zoom ?? initialZoom
-            }));
-        },
-        updateTileData: (tiles) => {
-            webViewRef.current?.postMessage(JSON.stringify({
-                type: 'updateTileData',
-                tiles
-            }));
-        },
-        updateMarkers: (markers) => {
-            webViewRef.current?.postMessage(JSON.stringify({
-                type: 'updateMarkers',
-                markers
-            }));
-        },
-        updateRouteIndicators: (routeIndicators) => {
-            webViewRef.current?.postMessage(JSON.stringify({
-                type: 'updateRouteIndicators',
-                routeIndicators
-            }));
-        }
+      flyTo: (center, zoom) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "flyTo",
+            center,
+            zoom: zoom ?? initialZoom,
+          })
+        );
+      },
+      updateTileData: (tiles) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "updateTileData",
+            tiles,
+          })
+        );
+      },
+      addMarkers: (markers) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "addMarkers",
+            markers,
+          })
+        );
+      },
+      updateMarkers: (markers) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "updateMarkers",
+            markers,
+          })
+        );
+      },
+      highlightMarker: (markerId) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "highlightMarker",
+            markerId,
+          })
+        );
+      },
+      addFriendMarkers: (friends) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "addFriendMarkers",
+            friends,
+          })
+        );
+      },
+      updateRouteIndicators: (indicators) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "updateRouteIndicators",
+            routeIndicators: indicators,
+          })
+        );
+      },
+      updateUserLocation: (latitude, longitude) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "updateUserLocation",
+            latitude,
+            longitude,
+          })
+        );
+      },
     }));
 
     useEffect(() => {
-        if (webViewRef.current) {
-            webViewRef.current.postMessage(JSON.stringify({
-                type: 'setStyle',
-                style: mapStyle
-            }));
-        }
+      if (webViewRef.current) {
+        webViewRef.current.postMessage(
+          JSON.stringify({
+            type: "setStyle",
+            style: mapStyle,
+          })
+        );
+      }
     }, [mapStyle]);
 
+    useEffect(() => {
+      webViewRef.current?.postMessage(
+        JSON.stringify({
+          type: "setTileInteractions",
+          enabled: tileInteractionsEnabled,
+        })
+      );
+    }, [tileInteractionsEnabled]);
+
     const handleWebViewMessage = (event: any) => {
-        try {
-            const raw = event.nativeEvent.data;
-            if (raw === 'mapLoaded') {
-                webViewRef.current?.postMessage(JSON.stringify({
-                    type: 'setStyle',
-                    style: mapStyle
-                }));
-            } else if (typeof raw === 'string' && raw.startsWith('log:')) {
-                // Logging disabled
-            } else if (typeof raw === 'string') {
-                try {
-                    const message = JSON.parse(raw);
-                    if (message.type === 'tilePress' && message.tile && onTilePress) {
-                        onTilePress(message.tile);
-                    }
-                } catch (parseError) {
-                    // Silently handle parse errors
-                }
+      try {
+        const raw = event.nativeEvent.data;
+        if (raw === "mapLoaded") {
+          webViewRef.current?.postMessage(
+            JSON.stringify({
+              type: "setStyle",
+              style: mapStyle,
+            })
+          );
+        } else if (typeof raw === "string" && raw.startsWith("log:")) {
+          console.log("MapboxWebView Log:", raw);
+        } else if (typeof raw === "string") {
+          try {
+            const message = JSON.parse(raw);
+            if (message.type === "tilePress" && message.tile && onTilePress) {
+              onTilePress(message.tile);
+            } else if (
+              message.type === "markerPress" &&
+              message.markerId &&
+              onMarkerPress
+            ) {
+              onMarkerPress(message.markerId);
+            } else if (
+              message.type === "friendMarkerPress" &&
+              message.friendId &&
+              onFriendMarkerPress
+            ) {
+              onFriendMarkerPress(message.friendId);
             }
-        } catch (e) {
-            // Silently handle message errors
+          } catch (parseError) {
+            console.error("Error parsing WebView message", parseError);
+          }
         }
+      } catch (e) {
+        console.error("Error handling WebView message", e);
+      }
     };
 
     const htmlContent = `
@@ -157,6 +242,37 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
             color: #6b7280;
             font-weight: 500;
         }
+        .friend-marker-container {
+            position: relative;
+            width: 32px;
+            height: 32px;
+        }
+        .friend-marker-pulse {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 32px;
+            height: 32px;
+            border-radius: 16px;
+            background-color: rgba(59, 130, 246, 0.4);
+            animation: friendPulse 1.8s ease-out infinite;
+            pointer-events: none;
+        }
+        @keyframes friendPulse {
+            0% {
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 0.8;
+            }
+            100% {
+                transform: translate(-50%, -50%) scale(2);
+                opacity: 0;
+            }
+        }
+        .friend-marker-circle {
+            position: relative;
+            z-index: 1;
+        }
     </style>
     </head>
     <body>
@@ -196,7 +312,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
             type: 'FeatureCollection',
             features: pointsFeatures
         };
-        const API_BASE_URL = 'http://localhost:8000';
+        const API_BASE_URL = '${API_BASE_URL}';
         let tileIntensityMap = {};
 
         mapboxgl.accessToken = '${accessToken}';
@@ -230,12 +346,18 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
         // Fetch tile data from API
         async function fetchTileData() {
             try {
-                const response = await fetch(API_BASE_URL + '/map');
+                const url = API_BASE_URL + '/map';
+                log('Fetching tile data from: ' + url);
+                const response = await fetch(url);
+                
                 if (!response.ok) {
-                    log('API response not OK: ' + response.status);
+                    const errorText = await response.text();
+                    log('API response not OK: ' + response.status + ' - ' + errorText);
                     return;
                 }
+                
                 const data = await response.json();
+                log('Successfully fetched tile data');
                 
                 // Extract tiles from response (backend returns {tiles: {...}, tents: {...}})
                 const tiles = data.tiles || {};
@@ -262,6 +384,11 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                 updateTileColors();
             } catch (error) {
                 log('Error fetching tile data: ' + error.toString());
+                log('Error details: ' + JSON.stringify({
+                    message: error?.message,
+                    name: error?.name,
+                    stack: error?.stack
+                }));
             }
         }
 
@@ -400,6 +527,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                 }
 
                 map.on('click', 'oktoberfest-tiles-fill', function(e) {
+                    if (!tileInteractionsEnabled) return;
                     try {
                         const feature = e.features && e.features[0];
                         if (!feature) {
@@ -577,6 +705,185 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
         window.addEventListener('message', handleMessage);
         document.addEventListener('message', handleMessage);
 
+        let tileInteractionsEnabled = true;
+
+        function updateMarkers(markers) {
+            const features = markers.map(m => ({
+                type: 'Feature',
+                geometry: {
+                    type: 'Point',
+                    coordinates: [m.long || m.longitude, m.lat || m.latitude] 
+                },
+                properties: {
+                    title: m.tent_name || m.name,
+                    description: 'Score: ' + (m.score ? m.score.toFixed(2) : 'N/A'),
+                    type: m.type
+                }
+            }));
+            
+            const geojson = {
+                type: 'FeatureCollection',
+                features: features
+            };
+            
+            if (map.getSource('recommendation-markers')) {
+                map.getSource('recommendation-markers').setData(geojson);
+            } else {
+                map.addSource('recommendation-markers', {
+                    type: 'geojson',
+                    data: geojson
+                });
+                
+                map.addLayer({
+                    id: 'recommendation-markers-circles',
+                    type: 'circle',
+                    source: 'recommendation-markers',
+                    paint: {
+                        'circle-radius': 8,
+                        'circle-radius-transition': { duration: 300 },
+                        'circle-color': '#ffffff',
+                        'circle-color-transition': { duration: 300 },
+                        'circle-stroke-width': 3,
+                        'circle-stroke-width-transition': { duration: 300 },
+                        'circle-stroke-color': '#16a34a'
+                    }
+                });
+
+                map.on('click', 'recommendation-markers-circles', (e) => {
+                    if (e.features && e.features.length > 0) {
+                         const id = e.features[0].properties.title;
+                         if (window.ReactNativeWebView) {
+                             window.ReactNativeWebView.postMessage(JSON.stringify({
+                                 type: 'markerPress',
+                                 markerId: id
+                             }));
+                         }
+                    }
+                });
+                
+                map.on('mouseenter', 'recommendation-markers-circles', () => {
+                    map.getCanvas().style.cursor = 'pointer';
+                });
+                map.on('mouseleave', 'recommendation-markers-circles', () => {
+                    map.getCanvas().style.cursor = '';
+                });
+            }
+        }
+
+        let friendMarkers = [];
+        let userLocationMarker = null;
+        
+        function getInitial(name) {
+            if (!name || name.length === 0) return '?';
+            return name.charAt(0).toUpperCase();
+        }
+
+        function updateUserLocation(latitude, longitude) {
+            // Remove existing user location marker if any
+            if (userLocationMarker) {
+                userLocationMarker.remove();
+                userLocationMarker = null;
+            }
+            
+            // If latitude or longitude is null, just remove the marker
+            if (latitude === null || longitude === null) {
+                return;
+            }
+            
+            // Create a custom marker element for user location
+            const el = document.createElement('div');
+            el.className = 'friend-marker-container';
+            
+            // Create pulse ring
+            const pulseRing = document.createElement('div');
+            pulseRing.className = 'friend-marker-pulse';
+            pulseRing.style.backgroundColor = 'rgba(34, 197, 94, 0.4)'; // Green pulse
+            
+            // Create main circle with "You" indicator
+            const circle = document.createElement('div');
+            circle.className = 'friend-marker-circle';
+            circle.textContent = '📍';
+            circle.style.backgroundColor = '#22c55e'; // Green
+            circle.style.width = '36px';
+            circle.style.height = '36px';
+            circle.style.borderRadius = '18px';
+            circle.style.border = '3px solid #ffffff';
+            circle.style.display = 'flex';
+            circle.style.alignItems = 'center';
+            circle.style.justifyContent = 'center';
+            circle.style.fontSize = '18px';
+            circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)';
+            
+            el.appendChild(pulseRing);
+            el.appendChild(circle);
+            
+            // Create marker
+            userLocationMarker = new mapboxgl.Marker(el)
+                .setLngLat([longitude, latitude])
+                .addTo(map);
+            
+            log('Updated user location marker at: ' + latitude + ', ' + longitude);
+        }
+
+        function updateFriendMarkers(friends) {
+            // Remove all existing friend markers
+            friendMarkers.forEach(marker => marker.remove());
+            friendMarkers = [];
+            
+            if (friends.length === 0) return;
+            
+            // Create HTML markers with initials and pulse animation
+            friends.forEach(f => {
+                const el = document.createElement('div');
+                el.className = 'friend-marker-container';
+                
+                // Get initial
+                const initial = getInitial(f.name);
+                
+                // Create pulse ring
+                const pulseRing = document.createElement('div');
+                pulseRing.className = 'friend-marker-pulse';
+                
+                // Create main circle with initial
+                const circle = document.createElement('div');
+                circle.className = 'friend-marker-circle';
+                circle.textContent = initial;
+                circle.style.backgroundColor = '#3b82f6';
+                circle.style.width = '32px';
+                circle.style.height = '32px';
+                circle.style.borderRadius = '16px';
+                circle.style.border = '3px solid #ffffff';
+                circle.style.display = 'flex';
+                circle.style.alignItems = 'center';
+                circle.style.justifyContent = 'center';
+                circle.style.color = '#ffffff';
+                circle.style.fontSize = '14px';
+                circle.style.fontWeight = '600';
+                circle.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
+                circle.style.cursor = 'pointer';
+                
+                el.appendChild(pulseRing);
+                el.appendChild(circle);
+                
+                // Add click handler
+                el.addEventListener('click', () => {
+                    if (window.ReactNativeWebView) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'friendMarkerPress',
+                            friendId: f.user_id
+                        }));
+                    }
+                });
+                
+                // Create marker
+                const marker = new mapboxgl.Marker(el)
+                    .setLngLat([f.longitude, f.latitude])
+                    .addTo(map);
+                
+                friendMarkers.push(marker);
+            });
+        }
+
         function handleMessage(event) {
             try {
                 log('Received message: ' + JSON.stringify(event.data));
@@ -591,6 +898,31 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                         zoom: data.zoom,
                         essential: true
                     });
+                } else if (data.type === 'addMarkers') {
+                    log('Adding markers: ' + data.markers.length);
+                    addMarkers(data.markers);
+                } else if (data.type === 'addFriendMarkers') {
+                    log('Adding friend markers: ' + data.friends.length);
+                    updateFriendMarkers(data.friends);
+                } else if (data.type === 'highlightMarker') {
+                    const id = data.markerId;
+                    if (map.getLayer('recommendation-markers-circles')) {
+                         map.setPaintProperty('recommendation-markers-circles', 'circle-color', '#ffffff');
+                         map.setPaintProperty('recommendation-markers-circles', 'circle-radius', [
+                            'case',
+                            ['==', ['get', 'title'], id],
+                            12, 
+                            6
+                        ]);
+                         map.setPaintProperty('recommendation-markers-circles', 'circle-stroke-width', [
+                            'case',
+                            ['==', ['get', 'title'], id],
+                            4, 
+                            2
+                        ]);
+                    }
+                } else if (data.type === 'setTileInteractions') {
+                    tileInteractionsEnabled = data.enabled;
                 } else if (data.type === 'updateTileData') {
                     log('Updating tile data with ' + Object.keys(data.tiles).length + ' entries');
                     const incomingTiles = data.tiles;
@@ -623,6 +955,9 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                 } else if (data.type === 'updateRouteIndicators') {
                     log('Updating route indicators with ' + (data.routeIndicators ? data.routeIndicators.length : 0) + ' items');
                     addRouteIndicators(data.routeIndicators);
+                } else if (data.type === 'updateUserLocation') {
+                    log('Updating user location: ' + data.latitude + ', ' + data.longitude);
+                    updateUserLocation(data.latitude, data.longitude);
                 }
             } catch (e) {
                 log('Error handling message: ' + e.toString());
@@ -634,25 +969,26 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
     `;
 
     return (
-    <View style={[styles.container, style]}>
+      <View style={[styles.container, style]}>
         <WebView
-            ref={webViewRef}
-            originWhitelist={['*']}
-            source={{ html: htmlContent }}
-            style={styles.webview}
-            scrollEnabled={false}
-            onMessage={handleWebViewMessage}
+          ref={webViewRef}
+          originWhitelist={["*"]}
+          source={{ html: htmlContent }}
+          style={styles.webview}
+          scrollEnabled={false}
+          onMessage={handleWebViewMessage}
         />
-    </View>
+      </View>
     );
-});
+  }
+);
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        overflow: 'hidden',
-    },
-    webview: {
-        flex: 1,
-    },
+  container: {
+    flex: 1,
+    overflow: "hidden",
+  },
+  webview: {
+    flex: 1,
+  },
 });

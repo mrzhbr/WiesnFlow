@@ -33,7 +33,7 @@ BOTTOM_RIGHT_LAT = 48.126496
 BOTTOM_RIGHT_LON = 11.553518
 
 # API configuration
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://wiesnflow.onrender.com")
 API_ENDPOINT = f"{API_BASE_URL}/position"
 
 # Simulation configuration
