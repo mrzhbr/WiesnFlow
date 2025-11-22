@@ -92,10 +92,10 @@ async def get_friend_list(user_id: str):
     supabase = get_supabase_client()
     # Outgoing: requests sent by user_id (we are sender, friend_id = target)
     # Only include accepted friends
-    sent_resp = supabase.table("friends").select("user_id,friend_id,accepted").eq("user_id", user_id).eq("accepted", True).execute()
+    sent_resp = supabase.table("friends").select("user_id,friend_id,accepted").eq("user_id", user_id).execute()
     # Incoming: requests received by user_id (we are receiver, user_id = sender, friend_id = us)
     # Only include accepted friends
-    recv_resp = supabase.table("friends").select("user_id,friend_id,accepted").eq("friend_id", user_id).eq("accepted", True).execute()
+    recv_resp = supabase.table("friends").select("user_id,friend_id,accepted").eq("friend_id", user_id).execute()
 
     friends_list = []
     # Outgoing: we sent, so friend_id is the friend

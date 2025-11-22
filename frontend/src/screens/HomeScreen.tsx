@@ -1,42 +1,65 @@
-import React, { useRef, useCallback, useState, useEffect } from 'react';
-import { View, StyleSheet, useColorScheme, Text, Animated, PanResponder, Pressable, Modal } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { MapboxWebView, MapboxWebViewRef } from '../components/MapboxWebView';
-import oktoberfestTiles from '../data/oktoberfest_tiles.json';
-import { API_BASE_URL, UUID_STORAGE_KEY } from '../config';
+import React, { useRef, useCallback, useState, useEffect } from "react";
+import {
+  View,
+  StyleSheet,
+  useColorScheme,
+  Text,
+  Animated,
+  PanResponder,
+  Pressable,
+  Modal,
+} from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { MapboxWebView, MapboxWebViewRef } from "../components/MapboxWebView";
+import oktoberfestTiles from "../data/oktoberfest_tiles.json";
+import {
+  API_BASE_URL,
+  UUID_STORAGE_KEY,
+  FRIEND_NAMES_STORAGE_KEY,
+} from "../config";
 
 const INITIAL_CENTER: [number, number] = [11.5492349, 48.1313557];
 const INITIAL_ZOOM = 14;
 
 const POI_COORDINATES: Record<string, { lat: number; lon: number }> = {
-    "schottenhammel": { lon: 11.548353, lat: 48.132072 },
-    "loewenbraeu": { lon: 11.549452, lat: 48.130993 },
-    "hacker_festzelt": { lon: 11.548750, lat: 48.132990 },
-    "paulaner": { lon: 11.547958, lat: 48.131006 },
-    "kaefer": { lon: 11.547610, lat: 48.130425 },
-    "augustiner": { lon: 11.549934, lat: 48.132894 },
-    "wilde_maus": { lon: 11.551921, lat: 48.132814 },
-    "teufelsrad": { lon: 11.551595, lat: 48.132216 },
-    "hexenschaukel": { lon: 11.551471, lat: 48.132642 },
-    "kalbsbratierei_heimer": { lon: 11.550964, lat: 48.133435 },
-    "cafe_kaiserschmarn_rischart": { lon: 11.550630, lat: 48.130582 },
+  schottenhammel: { lon: 11.548353, lat: 48.132072 },
+  loewenbraeu: { lon: 11.549452, lat: 48.130993 },
+  hacker_festzelt: { lon: 11.54875, lat: 48.13299 },
+  paulaner: { lon: 11.547958, lat: 48.131006 },
+  kaefer: { lon: 11.54761, lat: 48.130425 },
+  augustiner: { lon: 11.549934, lat: 48.132894 },
+  wilde_maus: { lon: 11.551921, lat: 48.132814 },
+  teufelsrad: { lon: 11.551595, lat: 48.132216 },
+  hexenschaukel: { lon: 11.551471, lat: 48.132642 },
+  kalbsbratierei_heimer: { lon: 11.550964, lat: 48.133435 },
+  cafe_kaiserschmarn_rischart: { lon: 11.55063, lat: 48.130582 },
 };
 
 const formatName = (name: string) => {
-    let formatted = name.replace(/_/g, ' ');
-    formatted = formatted.replace(/ae/g, 'ä').replace(/oe/g, 'ö').replace(/ue/g, 'ü');
-    return formatted.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  let formatted = name.replace(/_/g, " ");
+  formatted = formatted
+    .replace(/ae/g, "ä")
+    .replace(/oe/g, "ö")
+    .replace(/ue/g, "ü");
+  return formatted
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 };
 
 const getCategoryEmoji = (type: string) => {
-    switch (type) {
-        case 'tent': return '🍺';
-        case 'roller_coaster': return '🎡';
-        case 'food': return '🥨';
-        default: return '📍';
-    }
+  switch (type) {
+    case "tent":
+      return "🍺";
+    case "roller_coaster":
+      return "🎡";
+    case "food":
+      return "🥨";
+    default:
+      return "📍";
+  }
 };
 
 type SelectedTile = {
@@ -77,6 +100,84 @@ const formatTimeLabel = (date: Date): string => {
   const hours = date.getHours().toString().padStart(2, "0");
   const minutes = date.getMinutes().toString().padStart(2, "0");
   return `${hours}:${minutes}`;
+};
+
+// Decode PostGIS WKB hex string to (longitude, latitude)
+const decodeWkbPoint = (wkbHex: string): [number, number] | null => {
+  try {
+    // Convert hex string to ArrayBuffer
+    const buffer = new ArrayBuffer(wkbHex.length / 2);
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < wkbHex.length; i += 2) {
+      bytes[i / 2] = parseInt(wkbHex.substr(i, 2), 16);
+    }
+
+    // Check endianness (first byte)
+    const isLittleEndian = bytes[0] === 1;
+
+    // Helper function to read uint32
+    const readUInt32 = (offset: number): number => {
+      if (isLittleEndian) {
+        return (
+          bytes[offset] |
+          (bytes[offset + 1] << 8) |
+          (bytes[offset + 2] << 16) |
+          (bytes[offset + 3] << 24)
+        );
+      } else {
+        return (
+          (bytes[offset] << 24) |
+          (bytes[offset + 1] << 16) |
+          (bytes[offset + 2] << 8) |
+          bytes[offset + 3]
+        );
+      }
+    };
+
+    // Helper function to read double (IEEE 754)
+    const readDouble = (offset: number): number => {
+      const view = new DataView(buffer, offset, 8);
+      return view.getFloat64(0, isLittleEndian);
+    };
+
+    // Skip endianness byte (1 byte)
+    let offset = 1;
+
+    // Read geometry type (4 bytes)
+    const geomType = readUInt32(offset);
+    offset += 4;
+
+    // If SRID is present (geometry type & 0x20000000), skip SRID (4 bytes)
+    if (geomType & 0x20000000) {
+      offset += 4;
+    }
+
+    // Read longitude (X coordinate) - 8 bytes as double
+    const longitude = readDouble(offset);
+    offset += 8;
+
+    // Read latitude (Y coordinate) - 8 bytes as double
+    const latitude = readDouble(offset);
+
+    return [longitude, latitude];
+  } catch (error) {
+    console.error("Error decoding WKB point:", error);
+    return null;
+  }
+};
+
+type Friend = {
+  user_id: string;
+  accepted: boolean;
+  is_sent_by_me: boolean;
+  position: string | null;
+  last_update: string | null;
+};
+
+type FriendWithCoords = Friend & {
+  longitude: number;
+  latitude: number;
+  name: string;
 };
 
 const smoothHistory = (points: TimelinePoint[]): TimelinePoint[] => {
@@ -430,292 +531,473 @@ const TileDetailsCard: React.FC<
     );
   }
 
-	return (
-		<View pointerEvents="box-none" style={styles.bottomOverlay}>
-			<View style={styles.sheetContainer}>
-				<Animated.View
-					style={[
-						styles.bottomCard,
-						isDark ? styles.bottomCardDark : styles.bottomCardLight,
-						{ transform: [{ translateY }] },
-					]}
-					{...panResponder.panHandlers}
-				>
-					<View style={styles.sheetHandleContainer}>
-						<View style={styles.sheetHandle} />
-					</View>
-					{content}
-				</Animated.View>
-			</View>
-		</View>
-	);
+  return (
+    <View pointerEvents="box-none" style={styles.bottomOverlay}>
+      <View style={styles.sheetContainer}>
+        <Animated.View
+          style={[
+            styles.bottomCard,
+            isDark ? styles.bottomCardDark : styles.bottomCardLight,
+            { transform: [{ translateY }] },
+          ]}
+          {...panResponder.panHandlers}
+        >
+          <View style={styles.sheetHandleContainer}>
+            <View style={styles.sheetHandle} />
+          </View>
+          {content}
+        </Animated.View>
+      </View>
+    </View>
+  );
 };
 
 type CustomSliderProps = {
-	label: string;
-	value: number;
-	onValueChange: (val: number) => void;
-	isDark: boolean;
-    leftLabel?: string;
-    rightLabel?: string;
+  label: string;
+  value: number;
+  onValueChange: (val: number) => void;
+  isDark: boolean;
+  leftLabel?: string;
+  rightLabel?: string;
 };
 
-const CustomSlider: React.FC<CustomSliderProps> = ({ label, value, onValueChange, isDark, leftLabel, rightLabel }) => {
-	const [width, setWidth] = useState(0);
-	const panResponder = useRef(
-		PanResponder.create({
-			onStartShouldSetPanResponder: () => true,
-			onMoveShouldSetPanResponder: () => true,
-			onPanResponderGrant: (evt) => {
-				// Handle tap? For now just drag
-			},
-			onPanResponderMove: (evt, gestureState) => {
-				if (width > 0) {
-					// Simple delta calculation could be improved, 
-					// but typically we need absolute position or start value.
-					// A simple approximation for a custom slider without external libs:
-					// We really need to know the position of the slider on screen to map touch to value,
-					// or just handle relative drags.
-					// Let's do relative drag from current value.
-				}
-			},
-			// Let's stick to a simpler approach: Tap to set approximately, or use a discrete 5-step picker that looks like a slider
-		})
-	).current;
-    
-    // Better Slider Implementation
-    // We track layout. When user presses, we calculate percentage.
-    const handlePress = (evt: any) => {
-        const locationX = evt.nativeEvent.locationX;
+const CustomSlider: React.FC<CustomSliderProps> = ({
+  label,
+  value,
+  onValueChange,
+  isDark,
+  leftLabel,
+  rightLabel,
+}) => {
+  const [width, setWidth] = useState(0);
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        // Handle tap? For now just drag
+      },
+      onPanResponderMove: (evt, gestureState) => {
         if (width > 0) {
-            const newValue = Math.max(0, Math.min(1, locationX / width));
-            onValueChange(newValue);
+          // Simple delta calculation could be improved,
+          // but typically we need absolute position or start value.
+          // A simple approximation for a custom slider without external libs:
+          // We really need to know the position of the slider on screen to map touch to value,
+          // or just handle relative drags.
+          // Let's do relative drag from current value.
         }
-    };
+      },
+      // Let's stick to a simpler approach: Tap to set approximately, or use a discrete 5-step picker that looks like a slider
+    })
+  ).current;
 
-    return (
-        <View style={styles.sliderContainer}>
-            <View style={styles.sliderHeader}>
-                <Text style={[styles.sliderLabel, isDark ? styles.textLight : styles.textDark]}>{label}</Text>
-                <Text style={[styles.sliderValue, isDark ? styles.textMutedDark : styles.textMutedLight]}>
-                    {(value * 100).toFixed(0)}%
-                </Text>
-            </View>
-            <Pressable 
-                style={styles.sliderTrackContainer} 
-                onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-                onPress={handlePress}
-            >
-                <View style={[styles.sliderTrack, { backgroundColor: isDark ? '#334155' : '#cbd5e1' }]} />
-                <View 
-                    style={[
-                        styles.sliderFill, 
-                        { 
-                            backgroundColor: isDark ? '#22c55e' : '#16a34a',
-                            width: `${value * 100}%`
-                        } 
-                    ]} 
-                />
-                <View 
-                    style={[
-                        styles.sliderThumb, 
-                        { 
-                            left: `${value * 100}%`,
-                            borderColor: isDark ? '#22c55e' : '#16a34a',
-                            backgroundColor: isDark ? '#0f172a' : '#ffffff'
-                        } 
-                    ]} 
-                />
-            </Pressable>
-            {(leftLabel || rightLabel) && (
-                <View style={styles.sliderLabelsRow}>
-                    <Text style={[styles.sliderSideLabel, isDark ? styles.textMutedDark : styles.textMutedLight]}>
-                        {leftLabel}
-                    </Text>
-                    <Text style={[styles.sliderSideLabel, isDark ? styles.textMutedDark : styles.textMutedLight]}>
-                        {rightLabel}
-                    </Text>
-                </View>
-            )}
+  // Better Slider Implementation
+  // We track layout. When user presses, we calculate percentage.
+  const handlePress = (evt: any) => {
+    const locationX = evt.nativeEvent.locationX;
+    if (width > 0) {
+      const newValue = Math.max(0, Math.min(1, locationX / width));
+      onValueChange(newValue);
+    }
+  };
+
+  return (
+    <View style={styles.sliderContainer}>
+      <View style={styles.sliderHeader}>
+        <Text
+          style={[
+            styles.sliderLabel,
+            isDark ? styles.textLight : styles.textDark,
+          ]}
+        >
+          {label}
+        </Text>
+        <Text
+          style={[
+            styles.sliderValue,
+            isDark ? styles.textMutedDark : styles.textMutedLight,
+          ]}
+        >
+          {(value * 100).toFixed(0)}%
+        </Text>
+      </View>
+      <Pressable
+        style={styles.sliderTrackContainer}
+        onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+        onPress={handlePress}
+      >
+        <View
+          style={[
+            styles.sliderTrack,
+            { backgroundColor: isDark ? "#334155" : "#cbd5e1" },
+          ]}
+        />
+        <View
+          style={[
+            styles.sliderFill,
+            {
+              backgroundColor: isDark ? "#22c55e" : "#16a34a",
+              width: `${value * 100}%`,
+            },
+          ]}
+        />
+        <View
+          style={[
+            styles.sliderThumb,
+            {
+              left: `${value * 100}%`,
+              borderColor: isDark ? "#22c55e" : "#16a34a",
+              backgroundColor: isDark ? "#0f172a" : "#ffffff",
+            },
+          ]}
+        />
+      </Pressable>
+      {(leftLabel || rightLabel) && (
+        <View style={styles.sliderLabelsRow}>
+          <Text
+            style={[
+              styles.sliderSideLabel,
+              isDark ? styles.textMutedDark : styles.textMutedLight,
+            ]}
+          >
+            {leftLabel}
+          </Text>
+          <Text
+            style={[
+              styles.sliderSideLabel,
+              isDark ? styles.textMutedDark : styles.textMutedLight,
+            ]}
+          >
+            {rightLabel}
+          </Text>
         </View>
-    );
+      )}
+    </View>
+  );
 };
 
 type AttractionSelectorProps = {
-    selected: string[];
-    onToggle: (id: string) => void;
-    isDark: boolean;
+  selected: string[];
+  onToggle: (id: string) => void;
+  isDark: boolean;
 };
 
 const ATTRACTION_TYPES = [
-    { id: 'tents', label: '🍻 Tents' },
-    { id: 'rides', label: '🎡 Rides' },
-    { id: 'food', label: '🥨 Food' },
+  { id: "tents", label: "🍻 Tents" },
+  { id: "rides", label: "🎡 Rides" },
+  { id: "food", label: "🥨 Food" },
 ];
 
-const AttractionSelector: React.FC<AttractionSelectorProps> = ({ selected, onToggle, isDark }) => {
-    return (
-        <View style={styles.selectorContainer}>
-            <Text style={[styles.selectorTitle, isDark ? styles.textLight : styles.textDark]}>
-                Attractions
-            </Text>
-            <View style={styles.selectorGrid}>
-                {ATTRACTION_TYPES.map((type) => {
-                    const isSelected = selected.includes(type.id);
-                    return (
-                        <Pressable
-                            key={type.id}
-                            style={[
-                                styles.selectorChip,
-                                isSelected 
-                                    ? (isDark ? styles.chipSelectedDark : styles.chipSelectedLight)
-                                    : (isDark ? styles.chipBaseDark : styles.chipBaseLight)
-                            ]}
-                            onPress={() => onToggle(type.id)}
-                        >
-                            <Text style={[
-                                styles.chipText,
-                                isSelected 
-                                    ? styles.chipTextSelected
-                                    : (isDark ? styles.textMutedDark : styles.textMutedLight)
-                            ]}>
-                                {type.label}
-                            </Text>
-                        </Pressable>
-                    );
-                })}
-            </View>
-        </View>
-    );
+const AttractionSelector: React.FC<AttractionSelectorProps> = ({
+  selected,
+  onToggle,
+  isDark,
+}) => {
+  return (
+    <View style={styles.selectorContainer}>
+      <Text
+        style={[
+          styles.selectorTitle,
+          isDark ? styles.textLight : styles.textDark,
+        ]}
+      >
+        Attractions
+      </Text>
+      <View style={styles.selectorGrid}>
+        {ATTRACTION_TYPES.map((type) => {
+          const isSelected = selected.includes(type.id);
+          return (
+            <Pressable
+              key={type.id}
+              style={[
+                styles.selectorChip,
+                isSelected
+                  ? isDark
+                    ? styles.chipSelectedDark
+                    : styles.chipSelectedLight
+                  : isDark
+                  ? styles.chipBaseDark
+                  : styles.chipBaseLight,
+              ]}
+              onPress={() => onToggle(type.id)}
+            >
+              <Text
+                style={[
+                  styles.chipText,
+                  isSelected
+                    ? styles.chipTextSelected
+                    : isDark
+                    ? styles.textMutedDark
+                    : styles.textMutedLight,
+                ]}
+              >
+                {type.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
 };
 
 type ActionPopupProps = {
-	visible: boolean;
-	onClose: () => void;
-	colorScheme: 'light' | 'dark' | null | undefined;
-    onShowResults: (preference: number, types: string[]) => void;
+  visible: boolean;
+  onClose: () => void;
+  colorScheme: "light" | "dark" | null | undefined;
+  onShowResults: (preference: number, types: string[]) => void;
 };
 
-const ActionPopup: React.FC<ActionPopupProps> = ({ visible, onClose, colorScheme, onShowResults }) => {
-	const isDark = colorScheme === 'dark';
-    const [preference, setPreference] = useState(0.5); // 0: Distance, 1: Crowd
-    const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+const ActionPopup: React.FC<ActionPopupProps> = ({
+  visible,
+  onClose,
+  colorScheme,
+  onShowResults,
+}) => {
+  const isDark = colorScheme === "dark";
+  const [preference, setPreference] = useState(0.5); // 0: Distance, 1: Crowd
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
 
-    const toggleType = (id: string) => {
-        if (selectedTypes.includes(id)) {
-            setSelectedTypes(selectedTypes.filter(t => t !== id));
-        } else {
-            setSelectedTypes([...selectedTypes, id]);
-        }
-    };
-	
-	return (
-		<Modal
-			transparent
-			visible={visible}
-			animationType="fade"
-			onRequestClose={onClose}
-		>
-			<Pressable style={styles.modalOverlay} onPress={onClose}>
-				<Pressable 
-					style={[
-						styles.modalContent, 
-						isDark ? styles.modalContentDark : styles.modalContentLight
-					]}
-					onPress={(e) => e.stopPropagation()}
-				>
-					<Text style={[styles.modalTitle, isDark ? styles.textLight : styles.textDark]}>
-						Find Best Spot
-					</Text>
-					
-                    <View style={styles.popupBody}>
-                        <CustomSlider 
-                            label="Preference" 
-                            value={preference} 
-                            onValueChange={setPreference}
-                            isDark={isDark}
-                            leftLabel="Distance"
-                            rightLabel="Crowd"
-                        />
-                        <AttractionSelector 
-                            selected={selectedTypes}
-                            onToggle={toggleType}
-                            isDark={isDark}
-                        />
-                    </View>
+  const toggleType = (id: string) => {
+    if (selectedTypes.includes(id)) {
+      setSelectedTypes(selectedTypes.filter((t) => t !== id));
+    } else {
+      setSelectedTypes([...selectedTypes, id]);
+    }
+  };
 
-					<Pressable
-						style={[styles.modalButton, isDark ? styles.buttonDark : styles.buttonLight]}
-						onPress={() => {
-                            onShowResults(preference, selectedTypes);
-                            onClose();
-                        }}
-					>
-						<Text style={styles.buttonText}>Show Results</Text>
-					</Pressable>
-				</Pressable>
-			</Pressable>
-		</Modal>
-	);
+  return (
+    <Modal
+      transparent
+      visible={visible}
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable style={styles.modalOverlay} onPress={onClose}>
+        <Pressable
+          style={[
+            styles.modalContent,
+            isDark ? styles.modalContentDark : styles.modalContentLight,
+          ]}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <Text
+            style={[
+              styles.modalTitle,
+              isDark ? styles.textLight : styles.textDark,
+            ]}
+          >
+            Find Best Spot
+          </Text>
+
+          <View style={styles.popupBody}>
+            <CustomSlider
+              label="Preference"
+              value={preference}
+              onValueChange={setPreference}
+              isDark={isDark}
+              leftLabel="Distance"
+              rightLabel="Crowd"
+            />
+            <AttractionSelector
+              selected={selectedTypes}
+              onToggle={toggleType}
+              isDark={isDark}
+            />
+          </View>
+
+          <Pressable
+            style={[
+              styles.modalButton,
+              isDark ? styles.buttonDark : styles.buttonLight,
+            ]}
+            onPress={() => {
+              onShowResults(preference, selectedTypes);
+              onClose();
+            }}
+          >
+            <Text style={styles.buttonText}>Show Results</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
 };
 
 type RecommendationsSheetProps = {
-    recommendations: any[];
-    selectedId: string | null;
-    onSelect: (id: string) => void;
-    onClose: () => void;
-    colorScheme: any;
+  recommendations: any[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onClose: () => void;
+  colorScheme: any;
 };
 
-const RecommendationsSheet: React.FC<RecommendationsSheetProps> = ({ recommendations, selectedId, onSelect, onClose, colorScheme }) => {
-    const isDark = colorScheme === 'dark';
-    if (!recommendations || recommendations.length === 0) return null;
+const RecommendationsSheet: React.FC<RecommendationsSheetProps> = ({
+  recommendations,
+  selectedId,
+  onSelect,
+  onClose,
+  colorScheme,
+}) => {
+  const isDark = colorScheme === "dark";
+  if (!recommendations || recommendations.length === 0) return null;
 
-    return (
-        <View style={styles.bottomOverlay} pointerEvents="box-none">
-             <View style={styles.sheetContainer}>
-                <View style={[
-                    styles.bottomCard,
-                    isDark ? styles.bottomCardDark : styles.bottomCardLight
-                ]}>
-                    <View style={styles.bottomCardHeaderRow}>
-                        <Text style={[styles.bottomCardTitle, isDark ? styles.textLight : styles.textDark]}>
-                            Top Recommendations
-                        </Text>
-                        <Pressable onPress={onClose}>
-                            <Ionicons name="close" size={24} color={isDark ? "#9ca3af" : "#6b7280"} />
-                        </Pressable>
-                    </View>
-                    
-                    {recommendations.map((item, index) => {
-                        const isSelected = item.tent_name === selectedId;
-                        return (
-                            <Pressable
-                                key={index}
-                                style={[
-                                    styles.recItem,
-                                    isSelected ? (isDark ? styles.recItemSelectedDark : styles.recItemSelectedLight) : {}
-                                ]}
-                                onPress={() => onSelect(item.tent_name)}
-                            >
-                                <View style={styles.recContent}>
-                                    <Text style={[styles.recTitle, isDark ? styles.textLight : styles.textDark]}>
-                                        {getCategoryEmoji(item.type)} {item.tent_name}
-                                    </Text>
-                                    <Text style={[styles.recSubtitle, isDark ? styles.textMutedDark : styles.textMutedLight]}>
-                                        Distance: {Math.round(item.distance)}m • Score: {item.score.toFixed(1)}
-                                    </Text>
-                                </View>
-                                {isSelected && (
-                                    <Ionicons name="checkmark-circle" size={20} color="#16a34a" />
-                                )}
-                            </Pressable>
-                        );
-                    })}
+  return (
+    <View style={styles.bottomOverlay} pointerEvents="box-none">
+      <View style={styles.sheetContainer}>
+        <View
+          style={[
+            styles.bottomCard,
+            isDark ? styles.bottomCardDark : styles.bottomCardLight,
+          ]}
+        >
+          <View style={styles.bottomCardHeaderRow}>
+            <Text
+              style={[
+                styles.bottomCardTitle,
+                isDark ? styles.textLight : styles.textDark,
+              ]}
+            >
+              Top Recommendations
+            </Text>
+            <Pressable onPress={onClose}>
+              <Ionicons
+                name="close"
+                size={24}
+                color={isDark ? "#9ca3af" : "#6b7280"}
+              />
+            </Pressable>
+          </View>
+
+          {recommendations.map((item, index) => {
+            const isSelected = item.tent_name === selectedId;
+            return (
+              <Pressable
+                key={index}
+                style={[
+                  styles.recItem,
+                  isSelected
+                    ? isDark
+                      ? styles.recItemSelectedDark
+                      : styles.recItemSelectedLight
+                    : {},
+                ]}
+                onPress={() => onSelect(item.tent_name)}
+              >
+                <View style={styles.recContent}>
+                  <Text
+                    style={[
+                      styles.recTitle,
+                      isDark ? styles.textLight : styles.textDark,
+                    ]}
+                  >
+                    {getCategoryEmoji(item.type)} {item.tent_name}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.recSubtitle,
+                      isDark ? styles.textMutedDark : styles.textMutedLight,
+                    ]}
+                  >
+                    Distance: {Math.round(item.distance)}m • Score:{" "}
+                    {item.score.toFixed(1)}
+                  </Text>
                 </View>
-             </View>
+                {isSelected && (
+                  <Ionicons name="checkmark-circle" size={20} color="#16a34a" />
+                )}
+              </Pressable>
+            );
+          })}
         </View>
-    );
+      </View>
+    </View>
+  );
+};
+
+type FriendPopoverProps = {
+  friend: FriendWithCoords | null;
+  visible: boolean;
+  onClose: () => void;
+  colorScheme: "light" | "dark" | null | undefined;
+};
+
+const FriendPopover: React.FC<FriendPopoverProps> = ({
+  friend,
+  visible,
+  onClose,
+  colorScheme,
+}) => {
+  const isDark = colorScheme === "dark";
+
+  if (!visible || !friend) return null;
+
+  const formatLastSeen = (lastUpdate: string | null): string => {
+    if (!lastUpdate) return "Never";
+
+    try {
+      const date = new Date(lastUpdate);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 1) return "Just now";
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      if (diffDays < 7) return `${diffDays}d ago`;
+
+      return date.toLocaleDateString();
+    } catch (e) {
+      return "Unknown";
+    }
+  };
+
+  return (
+    <Modal
+      transparent
+      visible={visible}
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable style={styles.popoverOverlay} onPress={onClose}>
+        <Pressable
+          style={[
+            styles.friendPopover,
+            isDark ? styles.friendPopoverDark : styles.friendPopoverLight,
+          ]}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <View style={styles.friendPopoverHeader}>
+            <View style={styles.friendPopoverIcon}>
+              <Ionicons
+                name="person"
+                size={24}
+                color={isDark ? "#e5e7eb" : "#0f172a"}
+              />
+            </View>
+          </View>
+          <Text
+            style={[
+              styles.friendPopoverName,
+              isDark ? styles.textLight : styles.textDark,
+            ]}
+          >
+            {friend.name}
+          </Text>
+          <Text
+            style={[
+              styles.friendPopoverTime,
+              isDark ? styles.textMutedDark : styles.textMutedLight,
+            ]}
+          >
+            Last seen: {formatLastSeen(friend.last_update)}
+          </Text>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
 };
 
 export const HomeScreen = () => {
@@ -742,6 +1024,8 @@ export const HomeScreen = () => {
 
       if (data.tiles) {
         mapRef.current?.updateTileData(data.tiles);
+        // Refresh friends when map data updates
+        fetchFriends();
       }
     } catch (error: any) {
       console.error("[HomeScreen] Error fetching map data:", error);
@@ -755,14 +1039,95 @@ export const HomeScreen = () => {
   const [selectedTile, setSelectedTile] = useState<SelectedTile>(null);
   const [isSheetVisible, setIsSheetVisible] = useState(false);
   const [isActionPopupVisible, setIsActionPopupVisible] = useState(false);
-    
-    const [recommendations, setRecommendations] = useState<any[]>([]);
-	const [selectedRecId, setSelectedRecId] = useState<string | null>(null);
 
-    const handleRecSelect = useCallback((id: string) => {
-        setSelectedRecId(id);
-        mapRef.current?.highlightMarker(id);
-    }, []);
+  const [recommendations, setRecommendations] = useState<any[]>([]);
+  const [selectedRecId, setSelectedRecId] = useState<string | null>(null);
+  const [friends, setFriends] = useState<FriendWithCoords[]>([]);
+  const [selectedFriend, setSelectedFriend] = useState<FriendWithCoords | null>(
+    null
+  );
+  const [isFriendPopoverVisible, setIsFriendPopoverVisible] = useState(false);
+
+  const handleRecSelect = useCallback((id: string) => {
+    setSelectedRecId(id);
+    mapRef.current?.highlightMarker(id);
+  }, []);
+
+  const fetchFriends = useCallback(async () => {
+    try {
+      const userId = await AsyncStorage.getItem(UUID_STORAGE_KEY);
+      if (!userId) {
+        console.log("[HomeScreen] No user ID found for friends");
+        return;
+      }
+
+      const url = `${API_BASE_URL}/friends/map?user_id=${userId}`;
+      console.log("[HomeScreen] Fetching friends from:", url);
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        console.error(
+          `[HomeScreen] HTTP error ${response.status} fetching friends`
+        );
+        return;
+      }
+
+      const data = await response.json();
+      console.log("[HomeScreen] Fetched friends:", data);
+
+      if (data.status === "success" && data.friends) {
+        // Load friend names from AsyncStorage
+        const friendNamesStr = await AsyncStorage.getItem(
+          FRIEND_NAMES_STORAGE_KEY
+        );
+        const friendNames: Record<string, string> = friendNamesStr
+          ? JSON.parse(friendNamesStr)
+          : {};
+
+        // Decode positions and enrich with names
+        const friendsWithCoords: FriendWithCoords[] = [];
+
+        for (const friend of data.friends as Friend[]) {
+          if (!friend.position) continue;
+
+          const coords = decodeWkbPoint(friend.position);
+          if (!coords) continue;
+
+          const [longitude, latitude] = coords;
+          const name =
+            friendNames[friend.user_id] ||
+            `Friend ${friend.user_id.substring(0, 8)}`;
+
+          friendsWithCoords.push({
+            ...friend,
+            longitude,
+            latitude,
+            name,
+          });
+        }
+
+        setFriends(friendsWithCoords);
+
+        // Add friend markers to map
+        if (mapRef.current && friendsWithCoords.length > 0) {
+          mapRef.current.addFriendMarkers(friendsWithCoords);
+        }
+      }
+    } catch (error: any) {
+      console.error("[HomeScreen] Error fetching friends:", error);
+    }
+  }, []);
+
+  const handleFriendMarkerPress = useCallback(
+    (friendId: string) => {
+      const friend = friends.find((f) => f.user_id === friendId);
+      if (friend) {
+        setSelectedFriend(friend);
+        setIsFriendPopoverVisible(true);
+      }
+    },
+    [friends]
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -780,12 +1145,17 @@ export const HomeScreen = () => {
 
       // Fetch initial data
       fetchMapData();
+      fetchFriends();
 
       // Set up polling
-      const interval = setInterval(fetchMapData, 30000); // Poll every 30 seconds
+      const mapInterval = setInterval(fetchMapData, 30000); // Poll every 30 seconds
+      const friendsInterval = setInterval(fetchFriends, 30000); // Poll friends every 30 seconds
 
-      return () => clearInterval(interval);
-    }, [fetchMapData])
+      return () => {
+        clearInterval(mapInterval);
+        clearInterval(friendsInterval);
+      };
+    }, [fetchMapData, fetchFriends])
   );
   useFocusEffect(
     useCallback(() => {
@@ -802,508 +1172,570 @@ export const HomeScreen = () => {
     []
   );
 
-	const handleCloseSheet = useCallback(() => {
-		setIsSheetVisible(false);
-		setSelectedTile(null);
-	}, []);
+  const handleCloseSheet = useCallback(() => {
+    setIsSheetVisible(false);
+    setSelectedTile(null);
+  }, []);
 
-    const handleShowResults = async (preference: number, types: string[]) => {
-        try {
-            const userId = await AsyncStorage.getItem(UUID_STORAGE_KEY);
-            if (!userId) {
-                console.log("No user ID found");
-                return;
-            }
+  const handleShowResults = async (preference: number, types: string[]) => {
+    try {
+      const userId = await AsyncStorage.getItem(UUID_STORAGE_KEY);
+      if (!userId) {
+        console.log("No user ID found");
+        return;
+      }
 
-             const distancePreference = 1 - preference;
-             let requests: Promise<any>[] = [];
+      const distancePreference = 1 - preference;
+      let requests: Promise<any>[] = [];
 
-             if (types.length === 0 || types.length === 3) {
-                const url = `${API_BASE_URL}/recommendations?user_id=${userId}&distance_preference=${distancePreference}&type=all`;
-                requests.push(fetch(url).then(r => r.ok ? r.json() : []));
-            } else {
-                types.forEach(t => {
-                    let typeParam = '';
-                    if (t === 'tents') typeParam = 'tent';
-                    else if (t === 'rides') typeParam = 'roller_coaster';
-                    else if (t === 'food') typeParam = 'food';
-                    
-                    if (typeParam) {
-                        const url = `${API_BASE_URL}/recommendations?user_id=${userId}&distance_preference=${distancePreference}&type=${typeParam}`;
-                        requests.push(fetch(url).then(r => r.ok ? r.json() : []));
-                    }
-                });
-            }
+      if (types.length === 0 || types.length === 3) {
+        const url = `${API_BASE_URL}/recommendations?user_id=${userId}&distance_preference=${distancePreference}&type=all`;
+        requests.push(fetch(url).then((r) => (r.ok ? r.json() : [])));
+      } else {
+        types.forEach((t) => {
+          let typeParam = "";
+          if (t === "tents") typeParam = "tent";
+          else if (t === "rides") typeParam = "roller_coaster";
+          else if (t === "food") typeParam = "food";
 
-            const results = await Promise.all(requests);
-            const flatResults = results.flat();
-            // Deduplicate based on tent_name
-            const uniqueResults = Array.from(new Map(flatResults.map(item => [item.tent_name, item])).values());
-            
-            // Enrich with hardcoded coordinates
-            const enrichedResults = uniqueResults
-                .filter((item: any) => item && item.tent_name) // Filter out invalid items
-                .map((item: any) => {
-                    const coords = POI_COORDINATES[item.tent_name];
-                    let newItem = { ...item };
+          if (typeParam) {
+            const url = `${API_BASE_URL}/recommendations?user_id=${userId}&distance_preference=${distancePreference}&type=${typeParam}`;
+            requests.push(fetch(url).then((r) => (r.ok ? r.json() : [])));
+          }
+        });
+      }
 
-                    if (coords) {
-                        newItem.latitude = coords.lat;
-                        newItem.longitude = coords.lon;
-                    }
-                    
-                    newItem.tent_name = formatName(newItem.tent_name);
-                    return newItem;
-                });
-             
-             // Sort by score (high to low)
-             enrichedResults.sort((a: any, b: any) => b.score - a.score);
+      const results = await Promise.all(requests);
+      const flatResults = results.flat();
+      // Deduplicate based on tent_name
+      const uniqueResults = Array.from(
+        new Map(flatResults.map((item) => [item.tent_name, item])).values()
+      );
 
-             if (mapRef.current) {
-                 mapRef.current.addMarkers(enrichedResults);
-             }
-             
-             setRecommendations(enrichedResults);
-             if (enrichedResults.length > 0) {
-                 handleRecSelect(enrichedResults[0].tent_name);
-                 setIsSheetVisible(false);
-                 setSelectedTile(null);
-             }
-        } catch (e) {
-            console.error("Error fetching recommendations:", e);
-        }
-    };
+      // Enrich with hardcoded coordinates
+      const enrichedResults = uniqueResults
+        .filter((item: any) => item && item.tent_name) // Filter out invalid items
+        .map((item: any) => {
+          const coords = POI_COORDINATES[item.tent_name];
+          let newItem = { ...item };
 
-	return (
-		<View style={styles.container}>
-			<MapboxWebView
-				ref={mapRef}
-				accessToken={process.env.EXPO_PUBLIC_MAPBOX_TOKEN || ''}
-				style={styles.map}
-				initialCenter={INITIAL_CENTER}
-				initialZoom={INITIAL_ZOOM}
-				colorScheme={colorScheme}
-				onTilePress={handleTilePress}
-                onMarkerPress={handleRecSelect}
-                tileInteractionsEnabled={recommendations.length === 0}
-			/>
+          if (coords) {
+            newItem.latitude = coords.lat;
+            newItem.longitude = coords.lon;
+          }
 
-			<Pressable
-				style={[styles.actionButton, colorScheme === 'dark' ? styles.actionButtonDark : styles.actionButtonLight]}
-				onPress={() => setIsActionPopupVisible(true)}
-			>
-				<Ionicons name="search" size={30} color="#16a34a" />
-			</Pressable>
+          newItem.tent_name = formatName(newItem.tent_name);
+          return newItem;
+        });
 
-			<ActionPopup
-				visible={isActionPopupVisible}
-				onClose={() => setIsActionPopupVisible(false)}
-				colorScheme={colorScheme}
-                onShowResults={handleShowResults}
-			/>
+      // Sort by score (high to low)
+      enrichedResults.sort((a: any, b: any) => b.score - a.score);
 
-			<TileDetailsCard
-				tile={selectedTile}
-				colorScheme={colorScheme}
-				isVisible={isSheetVisible}
-				onClose={handleCloseSheet}
-			/>
-            
-            <RecommendationsSheet
-                recommendations={recommendations}
-                selectedId={selectedRecId}
-                onSelect={handleRecSelect}
-                onClose={() => {
-                    setRecommendations([]);
-                    setSelectedRecId(null);
-                    mapRef.current?.addMarkers([]);
-                }}
-                colorScheme={colorScheme}
-            />
-		</View>
-	);
+      if (mapRef.current) {
+        mapRef.current.addMarkers(enrichedResults);
+      }
+
+      setRecommendations(enrichedResults);
+      if (enrichedResults.length > 0) {
+        handleRecSelect(enrichedResults[0].tent_name);
+        setIsSheetVisible(false);
+        setSelectedTile(null);
+      }
+    } catch (e) {
+      console.error("Error fetching recommendations:", e);
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <MapboxWebView
+        ref={mapRef}
+        accessToken={process.env.EXPO_PUBLIC_MAPBOX_TOKEN || ""}
+        style={styles.map}
+        initialCenter={INITIAL_CENTER}
+        initialZoom={INITIAL_ZOOM}
+        colorScheme={colorScheme}
+        onTilePress={handleTilePress}
+        onMarkerPress={handleRecSelect}
+        onFriendMarkerPress={handleFriendMarkerPress}
+        tileInteractionsEnabled={recommendations.length === 0}
+      />
+
+      <Pressable
+        style={[
+          styles.actionButton,
+          colorScheme === "dark"
+            ? styles.actionButtonDark
+            : styles.actionButtonLight,
+        ]}
+        onPress={() => setIsActionPopupVisible(true)}
+      >
+        <Ionicons name="search" size={30} color="#16a34a" />
+      </Pressable>
+
+      <ActionPopup
+        visible={isActionPopupVisible}
+        onClose={() => setIsActionPopupVisible(false)}
+        colorScheme={colorScheme}
+        onShowResults={handleShowResults}
+      />
+
+      <TileDetailsCard
+        tile={selectedTile}
+        colorScheme={colorScheme}
+        isVisible={isSheetVisible}
+        onClose={handleCloseSheet}
+      />
+
+      <RecommendationsSheet
+        recommendations={recommendations}
+        selectedId={selectedRecId}
+        onSelect={handleRecSelect}
+        onClose={() => {
+          setRecommendations([]);
+          setSelectedRecId(null);
+          mapRef.current?.addMarkers([]);
+        }}
+        colorScheme={colorScheme}
+      />
+
+      <FriendPopover
+        friend={selectedFriend}
+        visible={isFriendPopoverVisible}
+        onClose={() => {
+          setIsFriendPopoverVisible(false);
+          setSelectedFriend(null);
+        }}
+        colorScheme={colorScheme}
+      />
+    </View>
+  );
 };
 
 const LINE_CHART_HORIZONTAL_PADDING = 16;
 const LINE_CHART_VERTICAL_PADDING = 10;
 
 const styles = StyleSheet.create({
-	container: {
-		flex: 1,
-	},
-	map: {
-		flex: 1,
-	},
-	bottomOverlay: {
-		position: 'absolute',
-		left: 0,
-		right: 0,
-		top: 0,
-		bottom: 0,
-		justifyContent: 'flex-end',
-		pointerEvents: 'box-none',
-	},
-	sheetContainer: {
-		paddingHorizontal: 18,
-		paddingBottom: 130,
-	},
-	bottomCard: {
-		borderRadius: 24,
-		paddingHorizontal: 18,
-		paddingVertical: 14,
-		shadowColor: '#000',
-		shadowOffset: { width: 0, height: 8 },
-		shadowOpacity: 0.25,
-		shadowRadius: 18,
-		elevation: 8,
-	},
-	bottomCardLight: {
-		backgroundColor: 'rgba(255, 255, 255, 0.96)',
-	},
-	bottomCardDark: {
-		backgroundColor: 'rgba(15, 23, 42, 0.96)',
-	},
-	sheetHandleContainer: {
-		alignItems: 'center',
-		marginBottom: 8,
-	},
-	sheetHandle: {
-		width: 40,
-		height: 4,
-		borderRadius: 999,
-		backgroundColor: 'rgba(148, 163, 184, 0.9)',
-	},
-	bottomCardHeaderRow: {
-		flexDirection: 'row',
-		alignItems: 'center',
-		justifyContent: 'space-between',
-		marginBottom: 14,
-	},
-	bottomCardTitleBlock: {
-		flexDirection: 'column',
-		flex: 1,
-		marginRight: 12,
-	},
-	bottomCardEyebrow: {
-		fontSize: 11,
-		letterSpacing: 0.7,
-		textTransform: 'uppercase',
-		marginBottom: 2,
-	},
-	bottomCardTitle: {
-		fontSize: 18,
-		fontWeight: '600',
-	},
-	bottomCardSubtitle: {
-		fontSize: 13,
-		marginTop: 4,
-	},
-	badgePill: {
-		flexDirection: 'row',
-		alignItems: 'center',
-		paddingHorizontal: 10,
-		paddingVertical: 6,
-		borderRadius: 999,
-	},
-	badgeDot: {
-		width: 8,
-		height: 8,
-		borderRadius: 4,
-		marginRight: 6,
-	},
-	badgeText: {
-		fontSize: 12,
-		fontWeight: '600',
-	},
-	statsRow: {
-		flexDirection: 'row',
-		alignItems: 'flex-end',
-		marginBottom: 10,
-	},
-	statItem: {
-		flex: 1,
-	},
-	statLabel: {
-		fontSize: 11,
-		marginBottom: 4,
-	},
-	statValue: {
-		fontSize: 20,
-		fontWeight: '700',
-	},
-	statValueSmall: {
-		fontSize: 13,
-		fontWeight: '500',
-	},
-	chartSection: {
-		borderTopWidth: StyleSheet.hairlineWidth,
-		borderTopColor: 'rgba(148, 163, 184, 0.35)',
-		paddingTop: 8,
-	},
-	chartHeaderRow: {
-		flexDirection: 'row',
-		alignItems: 'center',
-		justifyContent: 'space-between',
-		marginBottom: 8,
-	},
-	chartTitle: {
-		fontSize: 14,
-		fontWeight: '600',
-	},
-	chartSubtitle: {
-		fontSize: 12,
-	},
-	chartBody: {
-		marginTop: 4,
-	},
-	chartLabel: {
-		fontSize: 10,
-	},
-	lineChartTrack: {
-		height: 70,
-		borderRadius: 18,
-		backgroundColor: 'rgba(148, 163, 184, 0.16)',
-		overflow: 'hidden',
-		paddingHorizontal: LINE_CHART_HORIZONTAL_PADDING,
-		paddingVertical: LINE_CHART_VERTICAL_PADDING,
-	},
-	lineChartLabelsRow: {
-		flexDirection: 'row',
-		justifyContent: 'space-between',
-		marginTop: 6,
-	},
-	lineChartPoint: {
-		position: 'absolute',
-		width: 8,
-		height: 8,
-		borderRadius: 4,
-		borderWidth: 2,
-	},
-	lineChartSegment: {
-		position: 'absolute',
-		height: 2,
-		borderRadius: 999,
-	},
-	textLight: {
-		color: '#e5e7eb',
-	},
-	textDark: {
-		color: '#0f172a',
-	},
-	textMutedLight: {
-		color: '#6b7280',
-	},
-	textMutedDark: {
-		color: '#9ca3af',
-	},
-	modalOverlay: {
-		flex: 1,
-		backgroundColor: 'rgba(0, 0, 0, 0.5)',
-		justifyContent: 'center',
-		alignItems: 'center',
-	},
-	modalContent: {
-		width: '80%',
-		borderRadius: 20,
-		padding: 20,
-		alignItems: 'center',
-		shadowColor: '#000',
-		shadowOffset: {
-			width: 0,
-			height: 2,
-		},
-		shadowOpacity: 0.25,
-		shadowRadius: 4,
-		elevation: 5,
-	},
-	modalContentLight: {
-		backgroundColor: 'white',
-	},
-	modalContentDark: {
-		backgroundColor: '#1e293b',
-	},
-	modalTitle: {
-		fontSize: 20,
-		fontWeight: 'bold',
-		marginBottom: 10,
-	},
-	modalText: {
-		fontSize: 16,
-		marginBottom: 20,
-		textAlign: 'center',
-	},
-	modalButton: {
-		borderRadius: 10,
-		padding: 10,
-		elevation: 2,
-		minWidth: 100,
-	},
-	buttonLight: {
-		backgroundColor: '#16a34a',
-	},
-	buttonDark: {
-		backgroundColor: '#22c55e',
-	},
-	buttonText: {
-		color: 'white',
-		fontWeight: 'bold',
-		textAlign: 'center',
-	},
-	actionButton: {
-		position: 'absolute',
-		top: 60,
-		right: 20,
-		width: 50,
-		height: 50,
-		borderRadius: 25,
-		justifyContent: 'center',
-		alignItems: 'center',
-		shadowColor: '#000',
-		shadowOffset: { width: 0, height: 2 },
-		shadowOpacity: 0.25,
-		shadowRadius: 3.84,
-		elevation: 5,
-	},
-	actionButtonLight: {
-		backgroundColor: '#ffffff',
-	},
-	actionButtonDark: {
-		backgroundColor: '#1e293b',
-	},
-	actionButtonText: {
-		fontSize: 30,
-		color: '#16a34a',
-		lineHeight: 32,
-	},
-    popupBody: {
-        width: '100%',
-        marginBottom: 20,
+  container: {
+    flex: 1,
+  },
+  map: {
+    flex: 1,
+  },
+  bottomOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    justifyContent: "flex-end",
+    pointerEvents: "box-none",
+  },
+  sheetContainer: {
+    paddingHorizontal: 18,
+    paddingBottom: 130,
+  },
+  bottomCard: {
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 18,
+    elevation: 8,
+  },
+  bottomCardLight: {
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
+  },
+  bottomCardDark: {
+    backgroundColor: "rgba(15, 23, 42, 0.96)",
+  },
+  sheetHandleContainer: {
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(148, 163, 184, 0.9)",
+  },
+  bottomCardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  bottomCardTitleBlock: {
+    flexDirection: "column",
+    flex: 1,
+    marginRight: 12,
+  },
+  bottomCardEyebrow: {
+    fontSize: 11,
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+    marginBottom: 2,
+  },
+  bottomCardTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  bottomCardSubtitle: {
+    fontSize: 13,
+    marginTop: 4,
+  },
+  badgePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  badgeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  statsRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    marginBottom: 10,
+  },
+  statItem: {
+    flex: 1,
+  },
+  statLabel: {
+    fontSize: 11,
+    marginBottom: 4,
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  statValueSmall: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  chartSection: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(148, 163, 184, 0.35)",
+    paddingTop: 8,
+  },
+  chartHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  chartTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  chartSubtitle: {
+    fontSize: 12,
+  },
+  chartBody: {
+    marginTop: 4,
+  },
+  chartLabel: {
+    fontSize: 10,
+  },
+  lineChartTrack: {
+    height: 70,
+    borderRadius: 18,
+    backgroundColor: "rgba(148, 163, 184, 0.16)",
+    overflow: "hidden",
+    paddingHorizontal: LINE_CHART_HORIZONTAL_PADDING,
+    paddingVertical: LINE_CHART_VERTICAL_PADDING,
+  },
+  lineChartLabelsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 6,
+  },
+  lineChartPoint: {
+    position: "absolute",
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 2,
+  },
+  lineChartSegment: {
+    position: "absolute",
+    height: 2,
+    borderRadius: 999,
+  },
+  textLight: {
+    color: "#e5e7eb",
+  },
+  textDark: {
+    color: "#0f172a",
+  },
+  textMutedLight: {
+    color: "#6b7280",
+  },
+  textMutedDark: {
+    color: "#9ca3af",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    width: "80%",
+    borderRadius: 20,
+    padding: 20,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
     },
-    sliderContainer: {
-        width: '100%',
-        marginBottom: 20,
-    },
-    sliderHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 8,
-        alignItems: 'center',
-    },
-    sliderLabel: {
-        fontSize: 14,
-        fontWeight: '600',
-    },
-    sliderValue: {
-        fontSize: 12,
-    },
-    sliderTrackContainer: {
-        height: 30,
-        justifyContent: 'center',
-    },
-    sliderTrack: {
-        height: 4,
-        borderRadius: 2,
-        width: '100%',
-    },
-    sliderFill: {
-        height: 4,
-        borderRadius: 2,
-        position: 'absolute',
-        left: 0,
-    },
-    sliderThumb: {
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        position: 'absolute',
-        borderWidth: 2,
-        marginLeft: -10, // Center the thumb
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.2,
-        shadowRadius: 1.41,
-        elevation: 2,
-    },
-    selectorContainer: {
-        width: '100%',
-        marginBottom: 10,
-    },
-    selectorTitle: {
-        fontSize: 14,
-        fontWeight: '600',
-        marginBottom: 10,
-    },
-    selectorGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 8,
-    },
-    selectorChip: {
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 20,
-        borderWidth: 1,
-        marginBottom: 8,
-    },
-    chipBaseLight: {
-        backgroundColor: '#f1f5f9',
-        borderColor: '#e2e8f0',
-    },
-    chipBaseDark: {
-        backgroundColor: '#1e293b',
-        borderColor: '#334155',
-    },
-    chipSelectedLight: {
-        backgroundColor: '#16a34a',
-        borderColor: '#16a34a',
-    },
-    chipSelectedDark: {
-        backgroundColor: '#22c55e',
-        borderColor: '#22c55e',
-    },
-    chipText: {
-        fontSize: 13,
-        fontWeight: '500',
-    },
-    chipTextSelected: {
-        color: 'white',
-    },
-    sliderLabelsRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginTop: 4,
-    },
-    sliderSideLabel: {
-        fontSize: 12,
-        fontWeight: '500',
-    },
-    recItem: {
-        padding: 12,
-        borderRadius: 12,
-        marginBottom: 8,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        borderWidth: 1,
-        borderColor: 'transparent'
-    },
-    recItemSelectedLight: {
-        backgroundColor: '#f0fdf4',
-        borderColor: '#16a34a'
-    },
-    recItemSelectedDark: {
-        backgroundColor: 'rgba(22, 163, 74, 0.2)',
-        borderColor: '#16a34a'
-    },
-    recContent: {
-        flex: 1
-    },
-    recTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        marginBottom: 2
-    },
-    recSubtitle: {
-        fontSize: 12
-    }
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalContentLight: {
+    backgroundColor: "white",
+  },
+  modalContentDark: {
+    backgroundColor: "#1e293b",
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 10,
+  },
+  modalText: {
+    fontSize: 16,
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  modalButton: {
+    borderRadius: 10,
+    padding: 10,
+    elevation: 2,
+    minWidth: 100,
+  },
+  buttonLight: {
+    backgroundColor: "#16a34a",
+  },
+  buttonDark: {
+    backgroundColor: "#22c55e",
+  },
+  buttonText: {
+    color: "white",
+    fontWeight: "bold",
+    textAlign: "center",
+  },
+  actionButton: {
+    position: "absolute",
+    top: 60,
+    right: 20,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  actionButtonLight: {
+    backgroundColor: "#ffffff",
+  },
+  actionButtonDark: {
+    backgroundColor: "#1e293b",
+  },
+  actionButtonText: {
+    fontSize: 30,
+    color: "#16a34a",
+    lineHeight: 32,
+  },
+  popupBody: {
+    width: "100%",
+    marginBottom: 20,
+  },
+  sliderContainer: {
+    width: "100%",
+    marginBottom: 20,
+  },
+  sliderHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+    alignItems: "center",
+  },
+  sliderLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  sliderValue: {
+    fontSize: 12,
+  },
+  sliderTrackContainer: {
+    height: 30,
+    justifyContent: "center",
+  },
+  sliderTrack: {
+    height: 4,
+    borderRadius: 2,
+    width: "100%",
+  },
+  sliderFill: {
+    height: 4,
+    borderRadius: 2,
+    position: "absolute",
+    left: 0,
+  },
+  sliderThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    position: "absolute",
+    borderWidth: 2,
+    marginLeft: -10, // Center the thumb
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+    elevation: 2,
+  },
+  selectorContainer: {
+    width: "100%",
+    marginBottom: 10,
+  },
+  selectorTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 10,
+  },
+  selectorGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  selectorChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  chipBaseLight: {
+    backgroundColor: "#f1f5f9",
+    borderColor: "#e2e8f0",
+  },
+  chipBaseDark: {
+    backgroundColor: "#1e293b",
+    borderColor: "#334155",
+  },
+  chipSelectedLight: {
+    backgroundColor: "#16a34a",
+    borderColor: "#16a34a",
+  },
+  chipSelectedDark: {
+    backgroundColor: "#22c55e",
+    borderColor: "#22c55e",
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  chipTextSelected: {
+    color: "white",
+  },
+  sliderLabelsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  sliderSideLabel: {
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  recItem: {
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  recItemSelectedLight: {
+    backgroundColor: "#f0fdf4",
+    borderColor: "#16a34a",
+  },
+  recItemSelectedDark: {
+    backgroundColor: "rgba(22, 163, 74, 0.2)",
+    borderColor: "#16a34a",
+  },
+  recContent: {
+    flex: 1,
+  },
+  recTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  recSubtitle: {
+    fontSize: 12,
+  },
+  popoverOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  friendPopover: {
+    borderRadius: 16,
+    padding: 20,
+    minWidth: 200,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  friendPopoverLight: {
+    backgroundColor: "#ffffff",
+  },
+  friendPopoverDark: {
+    backgroundColor: "#1e293b",
+  },
+  friendPopoverHeader: {
+    marginBottom: 12,
+  },
+  friendPopoverIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  friendPopoverName: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  friendPopoverTime: {
+    fontSize: 14,
+    textAlign: "center",
+  },
 });
