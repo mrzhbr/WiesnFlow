@@ -20,6 +20,7 @@ import {
   FRIEND_NAMES_STORAGE_KEY,
   POSITION_OVERRIDE_STORAGE_KEY,
 } from "../config";
+import { useSecurityMode } from "../contexts/SecurityModeContext";
 
 const INITIAL_CENTER: [number, number] = [11.5492349, 48.1313557];
 const INITIAL_ZOOM = 14;
@@ -1149,6 +1150,7 @@ const FriendSheet: React.FC<FriendSheetProps> = ({
 export const HomeScreen = () => {
   const colorScheme = useColorScheme();
   const mapRef = useRef<MapboxWebViewRef>(null);
+  const { isSecurityMode } = useSecurityMode();
 
   const fetchMapData = useCallback(async (startTime?: string) => {
     try {
@@ -1757,37 +1759,44 @@ export const HomeScreen = () => {
         </View>
       )}
 
-      <View style={styles.actionButtonsContainer}>
-        <Pressable
-          style={[
-            styles.actionButton,
-            colorScheme === "dark"
-              ? styles.actionButtonDark
-              : styles.actionButtonLight,
-          ]}
-          onPress={handleAssemble}
-        >
-          {isAssembleLoading ? (
-            <Ionicons name="hourglass" size={30} color="#dc2626" />
-          ) : (
-            <Ionicons
-              name="people"
-              size={30}
-              color={isAssembleActive ? "#dc2626" : "#6b7280"}
-            />
-          )}
-        </Pressable>
-        <Pressable
-          style={[
-            styles.actionButton,
-            colorScheme === "dark"
-              ? styles.actionButtonDark
-              : styles.actionButtonLight,
-          ]}
-          onPress={() => setIsActionPopupVisible(true)}
-        >
-          <Ionicons name="search" size={30} color="#16a34a" />
-        </Pressable>
+      <View style={[
+        styles.actionButtonsContainer,
+        isSecurityMode && styles.actionButtonsContainerSecurityMode
+      ]}>
+        {!isSecurityMode && (
+          <Pressable
+            style={[
+              styles.actionButton,
+              colorScheme === "dark"
+                ? styles.actionButtonDark
+                : styles.actionButtonLight,
+            ]}
+            onPress={handleAssemble}
+          >
+            {isAssembleLoading ? (
+              <Ionicons name="hourglass" size={30} color="#dc2626" />
+            ) : (
+              <Ionicons
+                name="people"
+                size={30}
+                color={isAssembleActive ? "#dc2626" : "#6b7280"}
+              />
+            )}
+          </Pressable>
+        )}
+        {!isSecurityMode && (
+          <Pressable
+            style={[
+              styles.actionButton,
+              colorScheme === "dark"
+                ? styles.actionButtonDark
+                : styles.actionButtonLight,
+            ]}
+            onPress={() => setIsActionPopupVisible(true)}
+          >
+            <Ionicons name="search" size={30} color="#16a34a" />
+          </Pressable>
+        )}
         <Pressable
           style={[
             styles.actionButton,
@@ -2219,6 +2228,10 @@ const styles = StyleSheet.create({
     right: 20,
     flexDirection: "column",
     gap: 10,
+  },
+  actionButtonsContainerSecurityMode: {
+    top: 110,
+    justifyContent: "flex-start",
   },
   actionButton: {
     width: 50,
