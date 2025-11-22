@@ -34,7 +34,7 @@ async def update_map_data_task():
             print(f"❌ Error updating map data: {e}")
         
         # Wait 60 seconds before next update
-        await asyncio.sleep(60)
+        await asyncio.sleep(10)
 
 
 @asynccontextmanager
