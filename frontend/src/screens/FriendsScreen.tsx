@@ -48,6 +48,9 @@ export const FriendsScreen: React.FC = () => {
   const [scannedFriendId, setScannedFriendId] = useState<string | null>(null);
   const [friendName, setFriendName] = useState("");
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
+  const [isAcceptingFriend, setIsAcceptingFriend] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [friendToDelete, setFriendToDelete] = useState<string | null>(null);
 
   const textPrimaryStyle = isDark ? styles.textLight : styles.textDark;
   const textMutedStyle = isDark ? styles.textMutedDark : styles.textMutedLight;
@@ -207,8 +210,8 @@ export const FriendsScreen: React.FC = () => {
         setShowNameInput(false);
         setScannedFriendId(null);
         setFriendName("");
+        setIsAcceptingFriend(false);
         isProcessingScanRef.current = false;
-        Alert.alert("Success", "Friend request sent!");
         fetchFriends();
       } else {
         setIsAddingFriend(false);
@@ -234,7 +237,11 @@ export const FriendsScreen: React.FC = () => {
 
   const handleConfirmName = () => {
     if (scannedFriendId) {
-      handleAddFriend(scannedFriendId, friendName);
+      if (isAcceptingFriend) {
+        handleConfirmAcceptFriend();
+      } else {
+        handleAddFriend(scannedFriendId, friendName);
+      }
     }
   };
 
@@ -257,6 +264,7 @@ export const FriendsScreen: React.FC = () => {
       if (friendUuid) {
         setScannedFriendId(friendUuid);
         setFriendName("");
+        setIsAcceptingFriend(false);
         setShowScanner(false);
         setShowNameInput(true);
         isProcessingScanRef.current = false;
@@ -312,7 +320,17 @@ export const FriendsScreen: React.FC = () => {
     }, [fetchFriends])
   );
 
-  const handleAcceptFriend = async (friendUuid: string) => {
+  const handleAcceptFriend = (friendUuid: string) => {
+    // Show name input modal first
+    setScannedFriendId(friendUuid);
+    setFriendName(friendNames[friendUuid] || ""); // Pre-fill if name already exists
+    setIsAcceptingFriend(true);
+    setShowNameInput(true);
+  };
+
+  const handleConfirmAcceptFriend = async () => {
+    if (!scannedFriendId) return;
+
     // Get UUID from storage (should always exist since App.tsx initializes it)
     let uuid = userUuid;
     if (!uuid) {
@@ -321,12 +339,21 @@ export const FriendsScreen: React.FC = () => {
         setUserUuid(uuid);
       } else {
         Alert.alert("Error", "User ID not available");
+        setShowNameInput(false);
+        setIsAcceptingFriend(false);
+        setScannedFriendId(null);
+        setFriendName("");
         return;
       }
     }
 
+    // Save custom name if provided
+    if (friendName && friendName.trim()) {
+      await saveFriendName(scannedFriendId, friendName.trim());
+    }
+
     try {
-      const url = `${API_BASE_URL}/friends/accept/${friendUuid}?user_id=${uuid}`;
+      const url = `${API_BASE_URL}/friends/accept/${scannedFriendId}?user_id=${uuid}`;
       console.log("[FriendsScreen] Accepting friend, URL:", url);
       const response = await fetch(url);
 
@@ -343,7 +370,10 @@ export const FriendsScreen: React.FC = () => {
       console.log("[FriendsScreen] Accept friend response:", data);
 
       if (data.status === "success") {
-        Alert.alert("Success", "Friend request accepted!");
+        setShowNameInput(false);
+        setIsAcceptingFriend(false);
+        setScannedFriendId(null);
+        setFriendName("");
         fetchFriends();
       } else {
         Alert.alert("Error", data.message || "Failed to accept friend");
@@ -404,7 +434,6 @@ export const FriendsScreen: React.FC = () => {
               console.log("[FriendsScreen] Decline friend response:", data);
 
               if (data.status === "success") {
-                Alert.alert("Success", "Friend request declined");
                 fetchFriends();
               } else {
                 Alert.alert(
@@ -427,6 +456,78 @@ export const FriendsScreen: React.FC = () => {
         },
       ]
     );
+  };
+
+  const handleRemoveFriend = (friendUuid: string) => {
+    setFriendToDelete(friendUuid);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmRemoveFriend = async () => {
+    if (!friendToDelete) return;
+
+    // Get UUID from storage (should always exist since App.tsx initializes it)
+    let uuid = userUuid;
+    if (!uuid) {
+      uuid = await AsyncStorage.getItem(UUID_STORAGE_KEY);
+      if (uuid) {
+        setUserUuid(uuid);
+      } else {
+        Alert.alert("Error", "User ID not available");
+        setShowDeleteConfirm(false);
+        setFriendToDelete(null);
+        return;
+      }
+    }
+
+    try {
+      const url = `${API_BASE_URL}/friends/remove/${friendToDelete}?user_id=${uuid}`;
+      console.log("[FriendsScreen] Removing friend, URL:", url);
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `[FriendsScreen] HTTP error ${response.status}:`,
+          errorText
+        );
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log("[FriendsScreen] Remove friend response:", data);
+
+      if (data.status === "success") {
+        // Also remove the friend name from local storage
+        const updatedNames = { ...friendNames };
+        delete updatedNames[friendToDelete];
+        setFriendNames(updatedNames);
+        try {
+          await AsyncStorage.setItem(
+            FRIEND_NAMES_STORAGE_KEY,
+            JSON.stringify(updatedNames)
+          );
+        } catch (error) {
+          console.error("[FriendsScreen] Error removing friend name:", error);
+        }
+
+        setShowDeleteConfirm(false);
+        setFriendToDelete(null);
+        fetchFriends();
+      } else {
+        Alert.alert("Error", data.message || "Failed to remove friend");
+      }
+    } catch (err: any) {
+      const errorMessage =
+        err?.message || "Network error. Please check your connection.";
+      Alert.alert("Error", errorMessage);
+      console.error("Error removing friend:", err);
+      console.error("Error details:", {
+        message: err?.message,
+        stack: err?.stack,
+        name: err?.name,
+      });
+    }
   };
 
   const getStatusLabel = (accepted: boolean, isSender: boolean) => {
@@ -578,6 +679,17 @@ export const FriendsScreen: React.FC = () => {
                       </View>
                     </View>
                   </View>
+                  {friend.accepted && (
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.deleteButton,
+                        pressed && styles.buttonPressed,
+                      ]}
+                      onPress={() => handleRemoveFriend(friend.friend_id)}
+                    >
+                      <Text style={styles.deleteButtonText}>🗑️</Text>
+                    </Pressable>
+                  )}
                 </View>
                 {/* Show Accept/Decline buttons when accepted=false AND current user received the request (is_sender=false) */}
                 {!friend.accepted && !friend.is_sender && (
@@ -734,6 +846,7 @@ export const FriendsScreen: React.FC = () => {
           setShowNameInput(false);
           setScannedFriendId(null);
           setFriendName("");
+          setIsAcceptingFriend(false);
           setScanned(false);
           isProcessingScanRef.current = false;
         }}
@@ -741,10 +854,12 @@ export const FriendsScreen: React.FC = () => {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, cardStyle]}>
             <Text style={[styles.modalTitle, textPrimaryStyle]}>
-              Add Friend Name
+              {isAcceptingFriend ? "Accept Friend" : "Add Friend Name"}
             </Text>
             <Text style={[styles.modalSubtitle, textMutedStyle]}>
-              Give your friend a custom name (optional)
+              {isAcceptingFriend
+                ? "Give your friend a custom name (optional)"
+                : "Give your friend a custom name (optional)"}
             </Text>
             <TextInput
               style={[
@@ -769,6 +884,7 @@ export const FriendsScreen: React.FC = () => {
                   setShowNameInput(false);
                   setScannedFriendId(null);
                   setFriendName("");
+                  setIsAcceptingFriend(false);
                   setScanned(false);
                   isProcessingScanRef.current = false;
                 }}
@@ -782,7 +898,9 @@ export const FriendsScreen: React.FC = () => {
                 ]}
                 onPress={handleConfirmName}
               >
-                <Text style={styles.confirmButtonText}>Add Friend</Text>
+                <Text style={styles.confirmButtonText}>
+                  {isAcceptingFriend ? "Accept" : "Add Friend"}
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -802,6 +920,52 @@ export const FriendsScreen: React.FC = () => {
             >
               Adding friend...
             </Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={showDeleteConfirm}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setShowDeleteConfirm(false);
+          setFriendToDelete(null);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, cardStyle]}>
+            <Text style={[styles.modalTitle, textPrimaryStyle]}>
+              Remove Friend
+            </Text>
+            <Text style={[styles.modalSubtitle, textMutedStyle]}>
+              Are you sure you want to remove this friend? This action cannot be
+              undone.
+            </Text>
+            <View style={styles.nameInputButtons}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.cancelButton,
+                  pressed && styles.buttonPressed,
+                ]}
+                onPress={() => {
+                  setShowDeleteConfirm(false);
+                  setFriendToDelete(null);
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.deleteConfirmButton,
+                  pressed && styles.buttonPressed,
+                ]}
+                onPress={handleConfirmRemoveFriend}
+              >
+                <Text style={styles.deleteConfirmButtonText}>Delete</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1160,6 +1324,30 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   confirmButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  deleteButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "transparent",
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 8,
+  },
+  deleteButtonText: {
+    fontSize: 20,
+  },
+  deleteConfirmButton: {
+    flex: 1,
+    backgroundColor: "#ef4444",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  deleteConfirmButtonText: {
     color: "#ffffff",
     fontSize: 16,
     fontWeight: "600",
