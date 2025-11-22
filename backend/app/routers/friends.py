@@ -4,14 +4,14 @@ from app.database import get_supabase_client
 router = APIRouter()
 
 
-@router.get("/friends/add/{target}")
-async def add_friend(target: str, user_id: str):
+@router.get("/friends/add/{friend_id}")
+async def add_friend(friend_id: str, user_id: str):
     """Add a friend to the user's friends list."""
     try:
         supabase = get_supabase_client()
         supabase.table("friends").insert({
-            "watcher": user_id,
-            "target": target,
+            "user_id": user_id,
+            "friend_id": friend_id,
             "accepted": False
         }).execute()
     except Exception as e:
@@ -24,13 +24,15 @@ async def add_friend(target: str, user_id: str):
         "message": "Friend added successfully"
     }
 
-@router.get("/friends/accept/{target}")
-async def accept_friend(target: str, user_id: str):
+@router.get("/friends/accept/{friend_id}")
+async def accept_friend(friend_id: str, user_id: str):
     try:
         supabase = get_supabase_client()
+        # Only the friend (receiver) can accept the request
+        # Find record where user_id (sender) = friend_id and friend_id (receiver) = user_id
         supabase.table("friends").update({
             "accepted": True
-        }).eq("watcher", user_id).eq("target", target).execute()
+        }).eq("user_id", friend_id).eq("friend_id", user_id).execute()
     except Exception as e:
         return {
             "status": "error",
@@ -41,11 +43,13 @@ async def accept_friend(target: str, user_id: str):
         "message": "Friend accepted successfully"
     }
 
-@router.get("/friends/reject/{target}")
-async def reject_friend(target: str, user_id: str):
+@router.get("/friends/reject/{friend_id}")
+async def reject_friend(friend_id: str, user_id: str):
     try:
         supabase = get_supabase_client()
-        supabase.table("friends").delete().eq("watcher", user_id).eq("target", target).execute()
+        # Only the friend (receiver) can reject the request
+        # Find record where user_id (sender) = friend_id and friend_id (receiver) = user_id
+        supabase.table("friends").delete().eq("user_id", friend_id).eq("friend_id", user_id).execute()
     except Exception as e:
         return {
             "status": "error",
@@ -56,11 +60,11 @@ async def reject_friend(target: str, user_id: str):
         "message": "Friend rejected successfully"
     }
 
-@router.get("/friends/remove/{target}")
-async def remove_friend(target: str, user_id: str):
+@router.get("/friends/remove/{friend_id}")
+async def remove_friend(friend_id: str, user_id: str):
     try:
         supabase = get_supabase_client()
-        supabase.table("friends").delete().eq("watcher", user_id).eq("target", target).execute()
+        supabase.table("friends").delete().eq("user_id", user_id).eq("friend_id", friend_id).execute()
     except Exception as e:
         return {
             "status": "error",
@@ -79,22 +83,22 @@ async def get_friend_locations(user_id: str):
     """
     supabase = get_supabase_client()
     try:
-        # 1. Find all accepted friends where user_id is watcher or target (bidirectional friendship)
+        # 1. Find all accepted friends where user_id is user_id or friend_id (bidirectional friendship)
         # Friendship can be initiated in either direction - so check both ways
-        # First: user_id as watcher, accepted
-        resp1 = supabase.table("friends").select("watcher,target").eq("watcher", user_id).eq("accepted", True).execute()
-        # Second: user_id as target, accepted
-        resp2 = supabase.table("friends").select("watcher,target").eq("target", user_id).eq("accepted", True).execute()
+        # First: user_id as user_id, accepted
+        resp1 = supabase.table("friends").select("user_id,friend_id").eq("user_id", user_id).eq("accepted", True).execute()
+        # Second: user_id as friend_id, accepted
+        resp2 = supabase.table("friends").select("user_id,friend_id").eq("friend_id", user_id).eq("accepted", True).execute()
         
         # Extract all friend user_ids (the user that is NOT user_id in each row)
         friend_ids = set()
         
         for entry in resp1.data or []:
-            # If the user is the watcher, friend is the target
-            friend_ids.add(entry['target'])
+            # If the user is the user_id, friend is the friend_id
+            friend_ids.add(entry['friend_id'])
         for entry in resp2.data or []:
-            # If the user is the target, friend is the watcher
-            friend_ids.add(entry['watcher'])
+            # If the user is the friend_id, friend is the user_id
+            friend_ids.add(entry['user_id'])
         
         if not friend_ids:
             return {
