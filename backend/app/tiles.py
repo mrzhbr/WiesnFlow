@@ -7,40 +7,46 @@ from typing import Dict, Tuple, List
 import math
 import struct
 
-# Theresienwiese approximate center coordinates
-THRESIENWIESE_CENTER_LAT = 48.1315
-THRESIENWIESE_CENTER_LON = 11.5498
+# Theresienwiese bounding box coordinates
+# Top-left (northwest) corner
+TOP_LEFT_LAT = 48.136293
+TOP_LEFT_LON = 11.544973
 
-# Approximate area dimensions (roughly square)
-AREA_SIZE_METERS = 648  # meters (sqrt of ~420,000 m²)
+# Bottom-right (southeast) corner
+BOTTOM_RIGHT_LAT = 48.126496
+BOTTOM_RIGHT_LON = 11.553518
 
 # Tile size in meters
 TILE_SIZE_METERS = 50
 
-# Conversion factors at Munich's latitude (~48.1315°)
+# Conversion factors at Munich's latitude (~48.13°)
 # 1 degree latitude ≈ 111,320 meters
-# 1 degree longitude ≈ 111,320 * cos(48.1315°) ≈ 74,500 meters
+# 1 degree longitude ≈ 111,320 * cos(48.13°) ≈ 74,500 meters
 DEGREES_PER_METER_LAT = 1.0 / 111320.0  # ~0.00000898 degrees per meter
-DEGREES_PER_METER_LON = 1.0 / (111320.0 * 0.670)  # ~0.0000134 degrees per meter at 48° latitude
+DEGREES_PER_METER_LON = 1.0 / (111320.0 * math.cos(math.radians(48.13)))  # ~0.0000134 degrees per meter at 48° latitude
+
+# Calculate dimensions in degrees
+LAT_SPAN = TOP_LEFT_LAT - BOTTOM_RIGHT_LAT  # North-south span
+LON_SPAN = BOTTOM_RIGHT_LON - TOP_LEFT_LON  # East-west span
+
+# Calculate dimensions in meters
+AREA_HEIGHT_METERS = LAT_SPAN / DEGREES_PER_METER_LAT  # North-south height
+AREA_WIDTH_METERS = LON_SPAN / DEGREES_PER_METER_LON   # East-west width
 
 # Tile size in degrees
 TILE_SIZE_DEGREES_LAT = TILE_SIZE_METERS * DEGREES_PER_METER_LAT  # ~0.000449 degrees
 TILE_SIZE_DEGREES_LON = TILE_SIZE_METERS * DEGREES_PER_METER_LON  # ~0.000671 degrees
 
 # Calculate number of tiles (round up to ensure full coverage)
-NUM_TILES_PER_SIDE = math.ceil(AREA_SIZE_METERS / TILE_SIZE_METERS)  # 13 tiles per side (650m coverage)
-TOTAL_TILES = NUM_TILES_PER_SIDE * NUM_TILES_PER_SIDE  # 169 tiles
-
-# Calculate top-left corner (northwest corner)
-# Offset by half the area size from center
-TOP_LEFT_LAT = THRESIENWIESE_CENTER_LAT + (AREA_SIZE_METERS / 2) * DEGREES_PER_METER_LAT
-TOP_LEFT_LON = THRESIENWIESE_CENTER_LON - (AREA_SIZE_METERS / 2) * DEGREES_PER_METER_LON
+NUM_TILES_HEIGHT = math.ceil(AREA_HEIGHT_METERS / TILE_SIZE_METERS)  # Number of tiles vertically (north-south)
+NUM_TILES_WIDTH = math.ceil(AREA_WIDTH_METERS / TILE_SIZE_METERS)    # Number of tiles horizontally (east-west)
+TOTAL_TILES = NUM_TILES_HEIGHT * NUM_TILES_WIDTH
 
 # Generate all tiles as a list of (tile_id, top_left_lat, top_left_lon)
 OKTOBERFEST_TILES: List[Tuple[str, float, float]] = []
 
-for row in range(NUM_TILES_PER_SIDE):
-    for col in range(NUM_TILES_PER_SIDE):
+for row in range(NUM_TILES_HEIGHT):
+    for col in range(NUM_TILES_WIDTH):
         tile_id = f"tile_{row}_{col}"
         tile_lat = TOP_LEFT_LAT - (row * TILE_SIZE_DEGREES_LAT)
         tile_lon = TOP_LEFT_LON + (col * TILE_SIZE_DEGREES_LON)
@@ -65,8 +71,8 @@ def get_tile_id(latitude: float, longitude: float) -> str:
     col = int((longitude - TOP_LEFT_LON) / TILE_SIZE_DEGREES_LON)
     
     # Clamp to valid range (this handles edge cases and positions slightly outside bounds)
-    row = max(0, min(row, NUM_TILES_PER_SIDE - 1))
-    col = max(0, min(col, NUM_TILES_PER_SIDE - 1))
+    row = max(0, min(row, NUM_TILES_HEIGHT - 1))
+    col = max(0, min(col, NUM_TILES_WIDTH - 1))
     
     return f"tile_{row}_{col}"
 
