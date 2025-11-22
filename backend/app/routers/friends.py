@@ -116,20 +116,19 @@ async def get_friend_list(user_id: str):
         "friends": friends_list
     }
 
-@router.get("/friends")
+@router.get("/friends/map")
 async def get_friend_locations(user_id: str):
     """
-    Get all friends (accepted and pending) for the current user_id.
-    Returns a list of friends with their user_id, status (accepted/pending), and latest position (if available).
+    Get all accepted friends for the current user_id.
+    Returns a list of friends with their user_id, status (accepted), and latest position (if available).
     """
     supabase = get_supabase_client()
     try:
-        # 1. Find all friends where user_id is user_id or friend_id (bidirectional friendship)
-        # Get both accepted and pending friendships
+        # 1. Find all accepted friends where user_id is user_id or friend_id (bidirectional friendship)
         # First: user_id as user_id
-        resp1 = supabase.table("friends").select("user_id,friend_id,accepted").eq("user_id", user_id).execute()
+        resp1 = supabase.table("friends").select("user_id,friend_id,accepted").eq("user_id", user_id).eq("accepted", True).execute()
         # Second: user_id as friend_id
-        resp2 = supabase.table("friends").select("user_id,friend_id,accepted").eq("friend_id", user_id).execute()
+        resp2 = supabase.table("friends").select("user_id,friend_id,accepted").eq("friend_id", user_id).eq("accepted", True).execute()
         
         # Build a map of friend_id -> status (accepted/pending)
         # Also track if the request was sent by us (user_id) or received (friend_id)
