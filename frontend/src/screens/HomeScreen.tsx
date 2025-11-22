@@ -19,6 +19,7 @@ export const HomeScreen = () => {
                 throw new Error('Network response was not ok');
             }
             const data = await response.json();
+            console.log('Fetched map data:', JSON.stringify(data, null, 2));
             
             if (data.tiles) {
                 mapRef.current?.updateTileData(data.tiles);

@@ -82,7 +82,36 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
       <style>
         body { margin: 0; padding: 0; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; }
-      </style>
+        .mapboxgl-popup-content {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            color: #333;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        .mapboxgl-popup-tip {
+            border-top-color: white !important;
+        }
+        .popup-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            opacity: 0.8;
+        }
+        .popup-count {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #2563eb, #9333ea);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .popup-label {
+            font-size: 12px;
+            color: #6b7280;
+            font-weight: 500;
+        }
+    </style>
     </head>
     <body>
       <div id="map"></div>
@@ -94,6 +123,35 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
         }
 
         const tilesGeoJSON = ${JSON.stringify(oktoberfestTiles)};
+        
+        // Generate centroids for heatmap
+        const pointsFeatures = tilesGeoJSON.features.map(feature => {
+            // Simple centroid calculation for rects
+            const coords = feature.geometry.coordinates[0];
+            const lons = coords.map(c => c[0]);
+            const lats = coords.map(c => c[1]);
+            const minLon = Math.min(...lons);
+            const maxLon = Math.max(...lons);
+            const minLat = Math.min(...lats);
+            const maxLat = Math.max(...lats);
+            const centerLon = (minLon + maxLon) / 2;
+            const centerLat = (minLat + maxLat) / 2;
+            
+            return {
+                type: 'Feature',
+                id: feature.properties.tileId, // Same ID for state sync
+                properties: feature.properties,
+                geometry: {
+                    type: 'Point',
+                    coordinates: [centerLon, centerLat]
+                }
+            };
+        });
+        
+        const pointsGeoJSON = {
+            type: 'FeatureCollection',
+            features: pointsFeatures
+        };
 
         mapboxgl.accessToken = '${accessToken}';
         const map = new mapboxgl.Map({
@@ -105,43 +163,106 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
 
         function addTiles() {
             if (!map.getSource('oktoberfest-tiles')) {
+                // 1. Polygon Source for Interaction
                 map.addSource('oktoberfest-tiles', {
                     type: 'geojson',
-                    data: tilesGeoJSON
+                    data: tilesGeoJSON,
+                    promoteId: 'tileId'
                 });
                 
+                // 2. Point Source for Heatmap
+                map.addSource('oktoberfest-points', {
+                    type: 'geojson',
+                    data: pointsGeoJSON,
+                    promoteId: 'tileId'
+                });
+                
+                // 3. Invisible Fill Layer for Clicks
                 map.addLayer({
                     id: 'oktoberfest-tiles-fill',
                     type: 'fill',
                     source: 'oktoberfest-tiles',
                     paint: {
-                        'fill-color': [
-                            'interpolate',
-                            ['linear'],
-                            ['coalesce', ['feature-state', 'density'], 0],
-                            0, '#2563eb',
-                            10, '#ef4444'
-                        ],
-                        'fill-opacity': [
-                            'interpolate',
-                            ['linear'],
-                            ['coalesce', ['feature-state', 'density'], 0],
-                            0, 0.1,
-                            1, 0.4,
-                            10, 0.7
-                        ]
+                        'fill-color': '#000000',
+                        'fill-opacity': 0 // Invisible
                     }
                 });
 
+                // 4. Heatmap Layer
                 map.addLayer({
-                    id: 'oktoberfest-tiles-outline',
-                    type: 'line',
-                    source: 'oktoberfest-tiles',
+                    id: 'oktoberfest-heatmap',
+                    type: 'heatmap',
+                    source: 'oktoberfest-points',
+                    maxzoom: 16,
                     paint: {
-                        'line-color': '#1d4ed8',
-                        'line-width': 1
+                        // Increase the heatmap weight based on density state
+                        'heatmap-weight': [
+                            'interpolate',
+                            ['linear'],
+                            ['coalesce', ['feature-state', 'density'], 0],
+                            0, 0,
+                            1, 0.2,
+                            10, 1
+                        ],
+                        // Heatmap intensity multiplier
+                        'heatmap-intensity': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            12, 1,
+                            16, 3
+                        ],
+                        // Color ramp from transparent to green to yellow to red
+                        'heatmap-color': [
+                            'interpolate',
+                            ['linear'],
+                            ['heatmap-density'],
+                            0, 'rgba(33,102,172,0)',
+                            0.2, 'rgb(103,169,207)',
+                            0.4, '#22c55e', // Green
+                            0.6, '#eab308', // Yellow
+                            0.8, '#ef4444', // Red
+                            1, '#b91c1c'   // Dark Red
+                        ],
+                        // Adjust radius by zoom level
+                        'heatmap-radius': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            12, 20,
+                            16, 50 
+                        ],
+                        'heatmap-opacity': 0.7
                     }
                 });
+                
+            // Add click listener for popups (still on the fill layer)
+            map.on('click', 'oktoberfest-tiles-fill', (e) => {
+                if (e.features.length > 0) {
+                    const feature = e.features[0];
+                    const id = feature.id || feature.properties.tileId; // Try both
+                    const state = map.getFeatureState({ source: 'oktoberfest-tiles', id: id });
+                    const count = state.density || 0;
+                    
+                    new mapboxgl.Popup({
+                        closeButton: false,
+                        maxWidth: '300px',
+                        className: 'glassy-popup'
+                    })
+                    .setLngLat(e.lngLat)
+                    .setHTML('<div class="popup-content"><div class="popup-title">Crowd Density</div><div class="popup-count">' + count + '</div><div class="popup-label">People in this area</div></div>')
+                    .addTo(map);
+                }
+            });
+            
+            // Change cursor on hover
+                map.on('mouseenter', 'oktoberfest-tiles-fill', () => {
+                    map.getCanvas().style.cursor = 'pointer';
+                });
+                map.on('mouseleave', 'oktoberfest-tiles-fill', () => {
+                    map.getCanvas().style.cursor = '';
+                });
+
                 log('Tiles added');
             }
         }
@@ -183,11 +304,21 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                     
                     // Iterate over all features in the source to ensure we update everything (including resetting to 0)
                     if (tilesGeoJSON && tilesGeoJSON.features) {
+                         log('Processing ' + tilesGeoJSON.features.length + ' features');
                          tilesGeoJSON.features.forEach(feature => {
-                             if (feature.id) {
-                                 const count = incomingTiles[feature.id] || 0;
+                             // Use the promoted ID (tileId)
+                             const id = feature.properties.tileId;
+                             if (id) {
+                                 const count = incomingTiles[id] || 0;
+                                 
+                                 // Update state for BOTH polygon source (for interactions) and point source (for heatmap)
                                  map.setFeatureState(
-                                     { source: 'oktoberfest-tiles', id: feature.id },
+                                     { source: 'oktoberfest-tiles', id: id },
+                                     { density: count }
+                                 );
+                                 
+                                 map.setFeatureState(
+                                     { source: 'oktoberfest-points', id: id },
                                      { density: count }
                                  );
                              }
@@ -198,22 +329,22 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                 log('Error handling message: ' + e.toString());
             }
         }
-      </script>
+    </script>
     </body>
     </html>
-  `;
+    `;
 
     return (
-        <View style={[styles.container, style]}>
-            <WebView
-                ref={webViewRef}
-                originWhitelist={['*']}
-                source={{ html: htmlContent }}
-                style={styles.webview}
-                scrollEnabled={false}
-                onMessage={handleWebViewMessage}
-            />
-        </View>
+    <View style={[styles.container, style]}>
+        <WebView
+            ref={webViewRef}
+            originWhitelist={['*']}
+            source={{ html: htmlContent }}
+            style={styles.webview}
+            scrollEnabled={false}
+            onMessage={handleWebViewMessage}
+        />
+    </View>
     );
 });
 
