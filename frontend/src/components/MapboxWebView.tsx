@@ -418,28 +418,34 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                     maxzoom: 18,
                     paint: {
                         // Weight based on normalized density (0-1 where 1 is max)
-                        // The density state will be normalized before setting
+                        // Exponential curve with more steps creates heterogeneous appearance
                         'heatmap-weight': [
                             'interpolate',
-                            ['linear'],
+                            ['exponential', 1.8],
                             ['coalesce', ['feature-state', 'density'], 0],
                             0, 0,
+                            0.05, 0.3,  // Very low density visible
+                            0.15, 0.5,  // Low-medium has distinct weight
+                            0.4, 0.75,
                             1, 1
                         ],
-                        // Higher intensity for more aggressive colors
-                        'heatmap-intensity': 1.8,
-                        // More aggressive color ramp - colors kick in earlier and are more vibrant
+                        // Higher intensity for more aggressive colors at low end
+                        'heatmap-intensity': 2.4,
+                        // Very distinct colors for low densities to create heterogeneous appearance
                         'heatmap-color': [
                             'interpolate',
                             ['linear'],
                             ['heatmap-density'],
-                            0, 'rgba(33,102,172,0)',
-                            0.1, '#3b82f6',  // Blue kicks in early
-                            0.25, '#22c55e', // Green
-                            0.45, '#eab308', // Yellow
-                            0.65, '#f97316', // Orange
-                            0.8, '#ef4444',  // Red
-                            1, '#dc2626'     // Dark Red
+                            0, 'rgba(59,130,246,0)',   // Transparent at 0
+                            0.01, '#7dd3fc',            // Very light blue - just a few people (1-3)
+                            0.05, '#3b82f6',            // Strong blue - very low (3-5)
+                            0.12, '#06b6d4',            // Cyan - low (5-8)
+                            0.22, '#10b981',            // Emerald green - medium-low (8-12)
+                            0.35, '#84cc16',            // Lime green - medium (12-18)
+                            0.5, '#eab308',             // Yellow for medium
+                            0.65, '#f97316',            // Orange for medium-high
+                            0.8, '#ef4444',             // Red for high
+                            1, '#dc2626'                // Dark red for very high
                         ],
                         // Much smaller fixed radius (~50-60m)
                         'heatmap-radius': [
@@ -453,7 +459,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                             16, 153.6,
                             18, 614.4
                         ],
-                        'heatmap-opacity': 0.8
+                        'heatmap-opacity': 0.6
                     }
                 });
 
@@ -1294,8 +1300,8 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                         if (count > maxCount) maxCount = count;
                     });
                     
-                    // Use minimum of 50 as the normalizer (so colors don't get too intense for small crowds)
-                    const normalizer = Math.max(50, maxCount);
+                    // Use minimum of 25 as the normalizer (aggressive colors for better visibility)
+                    const normalizer = Math.max(25, maxCount);
                     
                     log('Max count: ' + maxCount + ', Normalizer: ' + normalizer);
                     
@@ -1307,8 +1313,8 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                              const id = feature.properties.tileId;
                              if (id) {
                                  const count = incomingTiles[id] || 0;
-                                 // Normalize to 0-1 range, using minimum normalizer of 50
-                                 // This prevents tiles with <50 people from getting max color intensity
+                                 // Normalize to 0-1 range, using minimum normalizer of 25
+                                 // This ensures good color visibility even for low crowd areas
                                  const normalizedDensity = normalizer > 0 ? count / normalizer : 0;
                                  
                                  // Update state for BOTH polygon source (for interactions) and point source (for heatmap)
