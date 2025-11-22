@@ -16,6 +16,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   ios: {
     supportsTablet: true,
+    infoPlist: {
+      NSLocationWhenInUseUsageDescription: 'This app needs access to your location to share it with others.',
+      NSLocationAlwaysAndWhenInUseUsageDescription: 'This app needs access to your location to share it with others.',
+    },
   },
   android: {
     adaptiveIcon: {
@@ -24,6 +28,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
+    permissions: [
+      'ACCESS_COARSE_LOCATION',
+      'ACCESS_FINE_LOCATION',
+    ],
   },
   web: {
     favicon: './assets/favicon.png',
