@@ -24,6 +24,7 @@ export interface MapboxWebViewRef {
     updateTileData: (tiles: Record<string, number>) => void;
     addMarkers: (markers: any[]) => void;
     highlightMarker: (markerId: string) => void;
+    updateUserLocation: (lat: number, lon: number) => void;
 }
 
 export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
@@ -68,6 +69,13 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
             webViewRef.current?.postMessage(JSON.stringify({
                 type: 'highlightMarker',
                 markerId
+            }));
+        },
+        updateUserLocation: (lat, lon) => {
+            webViewRef.current?.postMessage(JSON.stringify({
+                type: 'updateUserLocation',
+                lat,
+                lon
             }));
         }
     }));
@@ -157,6 +165,30 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
             color: #6b7280;
             font-weight: 500;
         }
+        .user-marker {
+            width: 20px;
+            height: 20px;
+            background-color: #3b82f6;
+            border: 3px solid white;
+            border-radius: 50%;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        .user-marker-pulse {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            background-color: rgba(59, 130, 246, 0.3);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+            pointer-events: none;
+        }
+        @keyframes pulse {
+            0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1.2); opacity: 0; }
+        }
     </style>
     </head>
     <body>
@@ -200,6 +232,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
         };
         const API_BASE_URL = '${API_BASE_URL}';
         let tileIntensityMap = {};
+        let userLocationMarker = null;
 
         mapboxgl.accessToken = '${accessToken}';
         const map = new mapboxgl.Map({
@@ -226,6 +259,30 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                 return 'rgba(239, 68, 68, 0.8)'; // Red for high
             } else {
                 return 'rgba(220, 38, 38, 0.9)'; // Dark red for very high
+            }
+        }
+
+        function updateUserLocationMarker(lat, lon) {
+            if (!lat || !lon) {
+                if (userLocationMarker) {
+                    userLocationMarker.remove();
+                    userLocationMarker = null;
+                }
+                return;
+            }
+
+            if (!userLocationMarker) {
+                const el = document.createElement('div');
+                el.className = 'user-marker';
+                const pulse = document.createElement('div');
+                pulse.className = 'user-marker-pulse';
+                el.appendChild(pulse);
+
+                userLocationMarker = new mapboxgl.Marker(el)
+                    .setLngLat([lon, lat])
+                    .addTo(map);
+            } else {
+                userLocationMarker.setLngLat([lon, lat]);
             }
         }
 
@@ -529,6 +586,8 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                     }
                 } else if (data.type === 'setTileInteractions') {
                     tileInteractionsEnabled = data.enabled;
+                } else if (data.type === 'updateUserLocation') {
+                    updateUserLocationMarker(data.lat, data.lon);
                 } else if (data.type === 'updateTileData') {
                     log('Updating tile data with ' + Object.keys(data.tiles).length + ' entries');
                     const incomingTiles = data.tiles;

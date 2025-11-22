@@ -3,6 +3,7 @@ import { View, StyleSheet, useColorScheme, Text, Animated, PanResponder, Pressab
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ExpoLocation from 'expo-location';
 import { MapboxWebView, MapboxWebViewRef } from '../components/MapboxWebView';
 import oktoberfestTiles from '../data/oktoberfest_tiles.json';
 import { API_BASE_URL, UUID_STORAGE_KEY, IS_TRACKING_KEY } from '../config';
@@ -756,18 +757,52 @@ export const HomeScreen = () => {
     const [recommendations, setRecommendations] = useState<any[]>([]);
 	const [selectedRecId, setSelectedRecId] = useState<string | null>(null);
     const [isTracking, setIsTracking] = useState(false);
-
+    
+    // Lightweight location polling
     useFocusEffect(
         useCallback(() => {
-            const checkTracking = async () => {
+            let intervalId: NodeJS.Timeout | null = null;
+
+            const checkTrackingAndPoll = async () => {
                 try {
                     const val = await AsyncStorage.getItem(IS_TRACKING_KEY);
-                    setIsTracking(val === 'true');
+                    const shouldTrack = val === 'true';
+                    setIsTracking(shouldTrack);
+
+                    if (shouldTrack) {
+                         // Initial fetch
+                        const fetchLocation = async () => {
+                            try {
+                                const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+                                if (status === 'granted') {
+                                    const location = await ExpoLocation.getCurrentPositionAsync({
+                                        accuracy: ExpoLocation.Accuracy.High
+                                    });
+                                    console.log("[HomeScreen] Poll location:", location.coords.latitude, location.coords.longitude);
+                                    mapRef.current?.updateUserLocation(location.coords.latitude, location.coords.longitude);
+                                }
+                            } catch (err) {
+                                console.log("[HomeScreen] Error polling location:", err);
+                            }
+                        };
+
+                        fetchLocation();
+                        // Poll every 5 seconds
+                        intervalId = setInterval(fetchLocation, 5000);
+                    } else {
+                        // Clear location on map if not tracking
+                         mapRef.current?.updateUserLocation(0, 0); // 0,0 triggers removal in WebView
+                    }
                 } catch (e) {
                     console.error("Error reading tracking state:", e);
                 }
             };
-            checkTracking();
+
+            checkTrackingAndPoll();
+
+            return () => {
+                if (intervalId) clearInterval(intervalId);
+            };
         }, [])
     );
 
