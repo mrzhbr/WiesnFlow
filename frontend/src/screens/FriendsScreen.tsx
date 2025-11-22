@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
@@ -21,6 +22,7 @@ import * as Crypto from "expo-crypto";
 const API_BASE_URL =
   process.env.API_BASE_URL || "https://wiesnflow.onrender.com";
 const UUID_STORAGE_KEY = "@wiesnflow:user_uuid";
+const FRIEND_NAMES_STORAGE_KEY = "@wiesnflow:friend_names";
 
 type Friend = {
   friend_id: string;
@@ -42,14 +44,18 @@ export const FriendsScreen: React.FC = () => {
   const [isAddingFriend, setIsAddingFriend] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const isProcessingScanRef = useRef(false);
+  const [showNameInput, setShowNameInput] = useState(false);
+  const [scannedFriendId, setScannedFriendId] = useState<string | null>(null);
+  const [friendName, setFriendName] = useState("");
+  const [friendNames, setFriendNames] = useState<Record<string, string>>({});
 
   const textPrimaryStyle = isDark ? styles.textLight : styles.textDark;
   const textMutedStyle = isDark ? styles.textMutedDark : styles.textMutedLight;
   const cardStyle = isDark ? styles.cardDark : styles.cardLight;
 
-  // Load UUID from storage (should always exist since App.tsx initializes it)
+  // Load UUID and friend names from storage
   useEffect(() => {
-    const loadUuid = async () => {
+    const loadData = async () => {
       try {
         const uuid = await AsyncStorage.getItem(UUID_STORAGE_KEY);
         if (uuid) {
@@ -60,11 +66,18 @@ export const FriendsScreen: React.FC = () => {
             "[FriendsScreen] UUID not found in storage - this should not happen"
           );
         }
+
+        // Load friend names
+        const namesJson = await AsyncStorage.getItem(FRIEND_NAMES_STORAGE_KEY);
+        if (namesJson) {
+          const names = JSON.parse(namesJson);
+          setFriendNames(names);
+        }
       } catch (error) {
-        console.error("[FriendsScreen] Error loading UUID:", error);
+        console.error("[FriendsScreen] Error loading data:", error);
       }
     };
-    loadUuid();
+    loadData();
   }, []);
 
   // Request camera permission when scanner opens
@@ -123,7 +136,20 @@ export const FriendsScreen: React.FC = () => {
     }
   }, [userUuid]);
 
-  const handleAddFriend = async (friendUuid: string) => {
+  const saveFriendName = async (friendId: string, name: string) => {
+    try {
+      const updatedNames = { ...friendNames, [friendId]: name };
+      setFriendNames(updatedNames);
+      await AsyncStorage.setItem(
+        FRIEND_NAMES_STORAGE_KEY,
+        JSON.stringify(updatedNames)
+      );
+    } catch (error) {
+      console.error("[FriendsScreen] Error saving friend name:", error);
+    }
+  };
+
+  const handleAddFriend = async (friendUuid: string, customName?: string) => {
     // Get UUID from storage (should always exist since App.tsx initializes it)
     let uuid = userUuid;
     if (!uuid) {
@@ -134,6 +160,7 @@ export const FriendsScreen: React.FC = () => {
         setIsAddingFriend(false);
         setShowScanner(false);
         setScanned(false);
+        setShowNameInput(false);
         isProcessingScanRef.current = false;
         Alert.alert("Error", "User ID not available");
         return;
@@ -144,11 +171,18 @@ export const FriendsScreen: React.FC = () => {
       setIsAddingFriend(false);
       setShowScanner(false);
       setScanned(false);
+      setShowNameInput(false);
       isProcessingScanRef.current = false;
       Alert.alert("Error", "You cannot add yourself as a friend");
       return;
     }
 
+    // Save custom name if provided
+    if (customName && customName.trim()) {
+      await saveFriendName(friendUuid, customName.trim());
+    }
+
+    setIsAddingFriend(true);
     try {
       const url = `${API_BASE_URL}/friends/add/${friendUuid}?user_id=${uuid}`;
       console.log("[FriendsScreen] Adding friend, URL:", url);
@@ -170,6 +204,9 @@ export const FriendsScreen: React.FC = () => {
         setIsAddingFriend(false);
         setShowScanner(false);
         setScanned(false);
+        setShowNameInput(false);
+        setScannedFriendId(null);
+        setFriendName("");
         isProcessingScanRef.current = false;
         Alert.alert("Success", "Friend request sent!");
         fetchFriends();
@@ -195,6 +232,12 @@ export const FriendsScreen: React.FC = () => {
     }
   };
 
+  const handleConfirmName = () => {
+    if (scannedFriendId) {
+      handleAddFriend(scannedFriendId, friendName);
+    }
+  };
+
   const handleScanQRCode = useCallback((data: string) => {
     // Prevent multiple scans using ref (more reliable than state for race conditions)
     if (isProcessingScanRef.current) {
@@ -212,9 +255,11 @@ export const FriendsScreen: React.FC = () => {
       const friendUuid = data.trim();
       console.log("[FriendsScreen] Scanned QR code:", friendUuid);
       if (friendUuid) {
-        setIsAddingFriend(true);
+        setScannedFriendId(friendUuid);
+        setFriendName("");
         setShowScanner(false);
-        handleAddFriend(friendUuid);
+        setShowNameInput(true);
+        isProcessingScanRef.current = false;
       } else {
         Alert.alert("Error", "Invalid QR code");
         setScanned(false);
@@ -502,7 +547,7 @@ export const FriendsScreen: React.FC = () => {
                       style={[styles.friendId, textPrimaryStyle]}
                       numberOfLines={1}
                     >
-                      {friend.friend_id}
+                      {friendNames[friend.friend_id] || friend.friend_id}
                     </Text>
                     <View style={styles.statusRow}>
                       <View
@@ -677,6 +722,70 @@ export const FriendsScreen: React.FC = () => {
               </View>
             </CameraView>
           )}
+        </View>
+      </Modal>
+
+      {/* Name Input Modal */}
+      <Modal
+        visible={showNameInput}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setShowNameInput(false);
+          setScannedFriendId(null);
+          setFriendName("");
+          setScanned(false);
+          isProcessingScanRef.current = false;
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, cardStyle]}>
+            <Text style={[styles.modalTitle, textPrimaryStyle]}>
+              Add Friend Name
+            </Text>
+            <Text style={[styles.modalSubtitle, textMutedStyle]}>
+              Give your friend a custom name (optional)
+            </Text>
+            <TextInput
+              style={[
+                styles.nameInput,
+                isDark ? styles.nameInputDark : styles.nameInputLight,
+                textPrimaryStyle,
+              ]}
+              placeholder="Enter friend's name"
+              placeholderTextColor={isDark ? "#9ca3af" : "#6b7280"}
+              value={friendName}
+              onChangeText={setFriendName}
+              autoFocus={true}
+              onSubmitEditing={handleConfirmName}
+            />
+            <View style={styles.nameInputButtons}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.cancelButton,
+                  pressed && styles.buttonPressed,
+                ]}
+                onPress={() => {
+                  setShowNameInput(false);
+                  setScannedFriendId(null);
+                  setFriendName("");
+                  setScanned(false);
+                  isProcessingScanRef.current = false;
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Skip</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  pressed && styles.buttonPressed,
+                ]}
+                onPress={handleConfirmName}
+              >
+                <Text style={styles.confirmButtonText}>Add Friend</Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
       </Modal>
 
@@ -1005,5 +1114,54 @@ const styles = StyleSheet.create({
   },
   textMutedDark: {
     color: "#9ca3af",
+  },
+  nameInput: {
+    width: "100%",
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    marginBottom: 20,
+  },
+  nameInputLight: {
+    backgroundColor: "#ffffff",
+    borderColor: "#d1d5db",
+    color: "#0f172a",
+  },
+  nameInputDark: {
+    backgroundColor: "#1a1a1a",
+    borderColor: "#4b5563",
+    color: "#e5e7eb",
+  },
+  nameInputButtons: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+  cancelButton: {
+    flex: 1,
+    borderWidth: 2,
+    borderColor: "#6b7280",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  cancelButtonText: {
+    color: "#6b7280",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  confirmButton: {
+    flex: 1,
+    backgroundColor: "#16a34a",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  confirmButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });
