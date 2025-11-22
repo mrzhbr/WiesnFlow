@@ -50,6 +50,35 @@ const formatName = (name: string) => {
     .join(" ");
 };
 
+const getOccupancyInfo = (count: number, isDark: boolean) => {
+  if (count <= 50) {
+    return {
+      label: "Empty",
+      color: isDark ? "#22c55e" : "#16a34a",
+      width: "25%",
+    };
+  }
+  if (count <= 100) {
+    return {
+      label: "Moderate",
+      color: isDark ? "#eab308" : "#ca8a04",
+      width: "50%",
+    };
+  }
+  if (count <= 150) {
+    return {
+      label: "Full",
+      color: isDark ? "#f97316" : "#ea580c",
+      width: "75%",
+    };
+  }
+  return {
+    label: "Overfilled",
+    color: isDark ? "#ef4444" : "#dc2626",
+    width: "100%",
+  };
+};
+
 const getCategoryEmoji = (type: string) => {
   switch (type) {
     case "tent":
@@ -834,6 +863,7 @@ type RecommendationsSheetProps = {
   onSelect: (id: string) => void;
   onClose: () => void;
   colorScheme: any;
+  tentOccupancy: Record<string, number>;
 };
 
 const RecommendationsSheet: React.FC<RecommendationsSheetProps> = ({
@@ -842,6 +872,7 @@ const RecommendationsSheet: React.FC<RecommendationsSheetProps> = ({
   onSelect,
   onClose,
   colorScheme,
+  tentOccupancy,
 }) => {
   const isDark = colorScheme === "dark";
   if (!recommendations || recommendations.length === 0) return null;
@@ -875,6 +906,11 @@ const RecommendationsSheet: React.FC<RecommendationsSheetProps> = ({
 
           {recommendations.map((item, index) => {
             const isSelected = item.tent_name === selectedId;
+            const occupancy = getOccupancyInfo(
+              tentOccupancy[item.original_id] ?? 0,
+              isDark
+            );
+
             return (
               <Pressable
                 key={index}
@@ -897,15 +933,37 @@ const RecommendationsSheet: React.FC<RecommendationsSheetProps> = ({
                   >
                     {getCategoryEmoji(item.type)} {item.tent_name}
                   </Text>
-                  <Text
-                    style={[
-                      styles.recSubtitle,
-                      isDark ? styles.textMutedDark : styles.textMutedLight,
-                    ]}
-                  >
-                    Distance: {Math.round(item.distance)}m • Score:{" "}
-                    {item.score.toFixed(1)}
-                  </Text>
+                  <View style={styles.recMetaRow}>
+                    <Text
+                      style={[
+                        styles.recSubtitle,
+                        isDark ? styles.textMutedDark : styles.textMutedLight,
+                      ]}
+                    >
+                      {Math.round(item.distance)}m
+                    </Text>
+                    <View style={styles.occupancyContainer}>
+                      <View style={styles.occupancyBarTrack}>
+                        <View
+                          style={[
+                            styles.occupancyBarFill,
+                            {
+                              width: occupancy.width,
+                              backgroundColor: occupancy.color,
+                            },
+                          ]}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.occupancyLabel,
+                          { color: occupancy.color },
+                        ]}
+                      >
+                        {occupancy.label}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
                 {isSelected && (
                   <Ionicons name="checkmark-circle" size={20} color="#16a34a" />
@@ -1062,6 +1120,9 @@ export const HomeScreen = () => {
         // Refresh friends when map data updates
         fetchFriends();
       }
+      if (data.tents) {
+        setTentOccupancy(data.tents);
+      }
     } catch (error: any) {
       console.error("[HomeScreen] Error fetching map data:", error);
       console.error("Error details:", {
@@ -1074,6 +1135,7 @@ export const HomeScreen = () => {
   const [selectedTile, setSelectedTile] = useState<SelectedTile>(null);
   const [isSheetVisible, setIsSheetVisible] = useState(false);
   const [isActionPopupVisible, setIsActionPopupVisible] = useState(false);
+  const [tentOccupancy, setTentOccupancy] = useState<Record<string, number>>({});
 
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [selectedRecId, setSelectedRecId] = useState<string | null>(null);
@@ -1385,12 +1447,13 @@ export const HomeScreen = () => {
             newItem.longitude = coords.lon;
           }
 
+          newItem.original_id = item.tent_name;
           newItem.tent_name = formatName(newItem.tent_name);
           return newItem;
         });
 
-      // Sort by score (high to low)
-      enrichedResults.sort((a: any, b: any) => b.score - a.score);
+      // Sort by score (low to high)
+      enrichedResults.sort((a: any, b: any) => a.score - b.score);
 
       if (mapRef.current) {
         mapRef.current.addMarkers(enrichedResults);
@@ -1496,6 +1559,7 @@ export const HomeScreen = () => {
           mapRef.current?.addMarkers([]);
         }}
         colorScheme={colorScheme}
+        tentOccupancy={tentOccupancy}
       />
 
       <FriendSheet
@@ -1892,6 +1956,34 @@ const styles = StyleSheet.create({
   },
   recSubtitle: {
     fontSize: 12,
+    minWidth: 40,
+  },
+  recMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 4,
+    gap: 12,
+  },
+  occupancyContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
+  },
+  occupancyBarTrack: {
+    height: 6,
+    width: 60,
+    backgroundColor: "rgba(148, 163, 184, 0.2)",
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  occupancyBarFill: {
+    height: "100%",
+    borderRadius: 3,
+  },
+  occupancyLabel: {
+    fontSize: 11,
+    fontWeight: "600",
   },
   friendSheetHeader: {
     alignItems: "center",
