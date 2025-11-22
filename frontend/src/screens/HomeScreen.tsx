@@ -22,6 +22,7 @@ import {
   FRIEND_NAMES_STORAGE_KEY,
   POSITION_OVERRIDE_STORAGE_KEY,
 } from "../config";
+import { useSecurityMode } from "../contexts/SecurityModeContext";
 
 const INITIAL_CENTER: [number, number] = [11.5492349, 48.1313557];
 const INITIAL_ZOOM = 14;
@@ -591,15 +592,113 @@ type CustomSliderProps = {
   label: string;
   value: number;
   onValueChange: (val: number) => void;
+  onValueChangeEnd?: (val: number) => void;
   isDark: boolean;
   leftLabel?: string;
   rightLabel?: string;
+};
+
+type TimeSeriesSliderProps = {
+  value: number;
+  onValueChange: (val: number) => void;
+  onValueChangeEnd?: (val: number) => void;
+  isDark: boolean;
+};
+
+const TimeSeriesSlider: React.FC<TimeSeriesSliderProps> = ({
+  value,
+  onValueChange,
+  onValueChangeEnd,
+  isDark,
+}) => {
+  const widthRef = useRef(0);
+  const startValueRef = useRef(0);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt, gestureState) => {
+        const width = widthRef.current;
+        if (width > 0) {
+          const locationX = evt.nativeEvent.locationX;
+          const newValue = Math.max(0, Math.min(1, locationX / width));
+          startValueRef.current = newValue;
+          onValueChange(newValue);
+        }
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        const width = widthRef.current;
+        if (width > 0) {
+          const delta = gestureState.dx / width;
+          const newValue = Math.max(
+            0,
+            Math.min(1, startValueRef.current + delta)
+          );
+          onValueChange(newValue);
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        const width = widthRef.current;
+        if (width > 0) {
+          const delta = gestureState.dx / width;
+          const finalValue = Math.max(
+            0,
+            Math.min(1, startValueRef.current + delta)
+          );
+          if (onValueChangeEnd) {
+            onValueChangeEnd(finalValue);
+          }
+        }
+      },
+    })
+  ).current;
+
+  return (
+    <View
+      style={styles.thickSliderContainer}
+      onLayout={(e) => {
+        widthRef.current = e.nativeEvent.layout.width;
+      }}
+      {...panResponder.panHandlers}
+    >
+      <View
+        pointerEvents="none"
+        style={[
+          styles.thickSliderTrack,
+          { backgroundColor: isDark ? "#334155" : "#e5e7eb" },
+        ]}
+      />
+      <View
+        pointerEvents="none"
+        style={[
+          styles.thickSliderFill,
+          {
+            backgroundColor: isDark ? "#3b82f6" : "#2563eb",
+            width: `${value * 100}%`,
+          },
+        ]}
+      />
+      <View
+        pointerEvents="none"
+        style={[
+          styles.thickSliderThumb,
+          {
+            left: `${value * 100}%`,
+            borderColor: isDark ? "#3b82f6" : "#2563eb",
+            backgroundColor: isDark ? "#0f172a" : "#ffffff",
+          },
+        ]}
+      />
+    </View>
+  );
 };
 
 const CustomSlider: React.FC<CustomSliderProps> = ({
   label,
   value,
   onValueChange,
+  onValueChangeEnd,
   isDark,
   leftLabel,
   rightLabel,
@@ -629,6 +728,19 @@ const CustomSlider: React.FC<CustomSliderProps> = ({
             Math.min(1, startValueRef.current + delta)
           );
           onValueChange(newValue);
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        const width = widthRef.current;
+        if (width > 0) {
+          const delta = gestureState.dx / width;
+          const finalValue = Math.max(
+            0,
+            Math.min(1, startValueRef.current + delta)
+          );
+          if (onValueChangeEnd) {
+            onValueChangeEnd(finalValue);
+          }
         }
       },
     })
@@ -1263,10 +1375,13 @@ const getDistanceFromLatLonInM = (lat1: number, lon1: number, lat2: number, lon2
 export const HomeScreen = () => {
   const colorScheme = useColorScheme();
   const mapRef = useRef<MapboxWebViewRef>(null);
+  const { isSecurityMode } = useSecurityMode();
 
-  const fetchMapData = useCallback(async () => {
+  const fetchMapData = useCallback(async (startTime?: string) => {
     try {
-      const url = `${API_BASE_URL}/map`;
+      const url = startTime
+        ? `${API_BASE_URL}/map?start_time=${startTime}`
+        : `${API_BASE_URL}/map`;
       console.log("[HomeScreen] Fetching map data from:", url);
       const response = await fetch(url);
 
@@ -1284,8 +1399,10 @@ export const HomeScreen = () => {
 
       if (data.tiles) {
         mapRef.current?.updateTileData(data.tiles);
-        // Refresh friends when map data updates
-        fetchFriends();
+        // Refresh friends when map data updates (but not during time-series playback)
+        if (!startTime) {
+          fetchFriends();
+        }
       }
       if (data.tents) {
         setTentOccupancy(data.tents);
@@ -1327,6 +1444,17 @@ export const HomeScreen = () => {
     longitude: number;
     latitude: number;
   } | null>(null);
+  const [isAssembleActive, setIsAssembleActive] = useState(false);
+  const [isAssembleLoading, setIsAssembleLoading] = useState(false);
+  const [assembleFinalPoint, setAssembleFinalPoint] = useState<{
+    longitude: number;
+    latitude: number;
+  } | null>(null);
+  const [isRouteShowing, setIsRouteShowing] = useState(false);
+  const [isTimeSeriesActive, setIsTimeSeriesActive] = useState(false);
+  const [timeSeriesMinute, setTimeSeriesMinute] = useState(60); // 60 = now, 0 = 1 hour ago
+  const [isPlayingForward, setIsPlayingForward] = useState(false);
+  const [isPlayingBackward, setIsPlayingBackward] = useState(false);
 
   const handleRecSelect = useCallback((id: string) => {
     // Check if it's a recommendation
@@ -1669,6 +1797,177 @@ export const HomeScreen = () => {
     }
   };
 
+  const handleAssemble = async () => {
+    try {
+      // If already active, just hide markers and reset
+      if (isAssembleActive) {
+        mapRef.current?.hideAssembleMarkers();
+        mapRef.current?.hideRoute();
+        setIsAssembleActive(false);
+        setAssembleFinalPoint(null);
+        setIsRouteShowing(false);
+        return;
+      }
+
+      // Start loading
+      setIsAssembleLoading(true);
+
+      const userId = await AsyncStorage.getItem(UUID_STORAGE_KEY);
+      if (!userId) {
+        console.log("No user ID found for assemble");
+        setIsAssembleLoading(false);
+        return;
+      }
+
+      const url = `${API_BASE_URL}/friends/assemble?user_id=${userId}`;
+      console.log("[HomeScreen] Calling assemble endpoint:", url);
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        console.error(
+          `[HomeScreen] HTTP error ${response.status} calling assemble`
+        );
+        setIsAssembleLoading(false);
+        return;
+      }
+
+      const data = await response.json();
+      console.log("[HomeScreen] Assemble response:", data);
+
+      if (data.status === "success" && data.center_point && data.final_point) {
+        // Show markers on map
+        mapRef.current?.showAssembleMarkers(
+          data.center_point,
+          data.final_point
+        );
+        setIsAssembleActive(true);
+        setAssembleFinalPoint(data.final_point);
+      } else {
+        console.error("[HomeScreen] Assemble failed:", data.message);
+      }
+    } catch (error) {
+      console.error("[HomeScreen] Error calling assemble:", error);
+    } finally {
+      setIsAssembleLoading(false);
+    }
+  };
+
+  const handleShowRoute = useCallback(async () => {
+    if (!assembleFinalPoint) {
+      console.log("No assembly point available");
+      return;
+    }
+
+    if (!myPosition) {
+      console.log(
+        "No current position available - please set your position first (long press on map)"
+      );
+      return;
+    }
+
+    console.log(
+      "[HomeScreen] Showing route from",
+      myPosition,
+      "to",
+      assembleFinalPoint
+    );
+    // Show the route from current position to assembly point
+    mapRef.current?.showRoute(myPosition, assembleFinalPoint);
+    setIsRouteShowing(true);
+  }, [assembleFinalPoint, myPosition]);
+
+  const handleTimeSeriesToggle = useCallback(() => {
+    if (isTimeSeriesActive) {
+      // Turning off time-series mode - fetch current data
+      setIsTimeSeriesActive(false);
+      setTimeSeriesMinute(60);
+      setIsPlayingForward(false);
+      setIsPlayingBackward(false);
+      fetchMapData();
+    } else {
+      // Turning on time-series mode
+      setIsTimeSeriesActive(true);
+    }
+  }, [isTimeSeriesActive, fetchMapData]);
+
+  // Handle automatic playback
+  useEffect(() => {
+    if (!isTimeSeriesActive || (!isPlayingForward && !isPlayingBackward)) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setTimeSeriesMinute((prev) => {
+        let newMinute = prev;
+
+        if (isPlayingForward) {
+          newMinute = Math.min(60, prev + 1);
+          if (newMinute >= 60) {
+            setIsPlayingForward(false); // Stop at the end
+          }
+        } else if (isPlayingBackward) {
+          newMinute = Math.max(0, prev - 1);
+          if (newMinute <= 0) {
+            setIsPlayingBackward(false); // Stop at the start
+          }
+        }
+
+        // Fetch data for this minute
+        if (newMinute !== prev) {
+          const now = new Date();
+          const minutesAgo = 60 - newMinute;
+          const targetTime = new Date(now.getTime() - minutesAgo * 60 * 1000);
+          const timestamp = targetTime.toISOString();
+          fetchMapData(timestamp);
+        }
+
+        return newMinute;
+      });
+    }, 1000); // Update every second
+
+    return () => clearInterval(interval);
+  }, [isTimeSeriesActive, isPlayingForward, isPlayingBackward, fetchMapData]);
+
+  const handleTimeSeriesChange = useCallback((minute: number) => {
+    setTimeSeriesMinute(minute);
+  }, []);
+
+  const handleTimeSeriesChangeEnd = useCallback(
+    (minute: number) => {
+      setTimeSeriesMinute(minute);
+
+      // Calculate the timestamp
+      const now = new Date();
+      const minutesAgo = 60 - minute;
+      const targetTime = new Date(now.getTime() - minutesAgo * 60 * 1000);
+      const timestamp = targetTime.toISOString();
+
+      console.log(
+        `[HomeScreen] Time-series: ${minutesAgo} minutes ago (${timestamp})`
+      );
+      fetchMapData(timestamp);
+    },
+    [fetchMapData]
+  );
+
+  const handlePlayBackward = useCallback(() => {
+    if (isPlayingBackward) {
+      setIsPlayingBackward(false);
+    } else {
+      setIsPlayingForward(false);
+      setIsPlayingBackward(true);
+    }
+  }, [isPlayingBackward]);
+
+  const handlePlayForward = useCallback(() => {
+    if (isPlayingForward) {
+      setIsPlayingForward(false);
+    } else {
+      setIsPlayingBackward(false);
+      setIsPlayingForward(true);
+    }
+  }, [isPlayingForward]);
+
   return (
     <View style={styles.container}>
       <MapboxWebView
@@ -1722,17 +2021,79 @@ export const HomeScreen = () => {
         </View>
       )}
 
-      <Pressable
-        style={[
-          styles.actionButton,
-          colorScheme === "dark"
-            ? styles.actionButtonDark
-            : styles.actionButtonLight,
-        ]}
-        onPress={() => setIsActionPopupVisible(true)}
-      >
-        <Ionicons name="search" size={30} color="#16a34a" />
-      </Pressable>
+      <View style={[
+        styles.actionButtonsContainer,
+        isSecurityMode && styles.actionButtonsContainerSecurityMode
+      ]}>
+        {!isSecurityMode && (
+          <Pressable
+            style={[
+              styles.actionButton,
+              colorScheme === "dark"
+                ? styles.actionButtonDark
+                : styles.actionButtonLight,
+            ]}
+            onPress={handleAssemble}
+          >
+            {isAssembleLoading ? (
+              <Ionicons name="hourglass" size={30} color="#dc2626" />
+            ) : (
+              <Ionicons
+                name="people"
+                size={30}
+                color={isAssembleActive ? "#dc2626" : "#6b7280"}
+              />
+            )}
+          </Pressable>
+        )}
+        {!isSecurityMode && (
+          <Pressable
+            style={[
+              styles.actionButton,
+              colorScheme === "dark"
+                ? styles.actionButtonDark
+                : styles.actionButtonLight,
+            ]}
+            onPress={() => setIsActionPopupVisible(true)}
+          >
+            <Ionicons name="search" size={30} color="#16a34a" />
+          </Pressable>
+        )}
+        <Pressable
+          style={[
+            styles.actionButton,
+            colorScheme === "dark"
+              ? styles.actionButtonDark
+              : styles.actionButtonLight,
+          ]}
+          onPress={handleTimeSeriesToggle}
+        >
+          <Ionicons
+            name="time"
+            size={30}
+            color={isTimeSeriesActive ? "#3b82f6" : "#6b7280"}
+          />
+        </Pressable>
+      </View>
+
+      {isAssembleActive && assembleFinalPoint && !isRouteShowing && (
+        <Pressable
+          style={[
+            styles.navigationButton,
+            colorScheme === "dark"
+              ? styles.navigationButtonDark
+              : styles.navigationButtonLight,
+            !myPosition && styles.navigationButtonDisabled,
+          ]}
+          onPress={handleShowRoute}
+          disabled={!myPosition}
+        >
+          <Ionicons name="navigate" size={24} color="#ffffff" />
+          <Text style={styles.navigationButtonText}>
+            {!myPosition ? "Set Position First" : "Show Route"}
+          </Text>
+        </Pressable>
+      )}
 
       <ActionPopup
         visible={isActionPopupVisible}
@@ -1782,6 +2143,131 @@ export const HomeScreen = () => {
         }}
         colorScheme={colorScheme}
       />
+
+      {isTimeSeriesActive && (
+        <View
+          style={[
+            styles.timeBarContainer,
+            colorScheme === "dark"
+              ? styles.timeBarContainerDark
+              : styles.timeBarContainerLight,
+          ]}
+        >
+          <View style={styles.timeBarHeader}>
+            <Ionicons
+              name="time"
+              size={24}
+              color={colorScheme === "dark" ? "#3b82f6" : "#2563eb"}
+            />
+            <Text
+              style={[
+                styles.timeBarLabel,
+                colorScheme === "dark" ? styles.textLight : styles.textDark,
+              ]}
+            >
+              {timeSeriesMinute === 60
+                ? "Now"
+                : `${60 - timeSeriesMinute} min ago`}
+            </Text>
+          </View>
+
+          <View style={styles.timeBarControls}>
+            <Pressable
+              style={[
+                styles.timeBarButton,
+                colorScheme === "dark"
+                  ? styles.timeBarButtonDark
+                  : styles.timeBarButtonLight,
+                isPlayingBackward && styles.timeBarButtonActive,
+              ]}
+              onPress={handlePlayBackward}
+            >
+              <Ionicons
+                name={isPlayingBackward ? "pause" : "play-back"}
+                size={20}
+                color={
+                  isPlayingBackward
+                    ? "#ffffff"
+                    : colorScheme === "dark"
+                    ? "#9ca3af"
+                    : "#6b7280"
+                }
+              />
+            </Pressable>
+
+            <View style={styles.timeBarProgressWrapper}>
+              <TimeSeriesSlider
+                value={timeSeriesMinute / 60}
+                onValueChange={(val) => {
+                  const newMinute = Math.round(val * 60);
+                  setTimeSeriesMinute(newMinute);
+                  // Stop any playing animation when user interacts
+                  setIsPlayingForward(false);
+                  setIsPlayingBackward(false);
+                }}
+                onValueChangeEnd={(val) => {
+                  const newMinute = Math.round(val * 60);
+                  setTimeSeriesMinute(newMinute);
+
+                  const now = new Date();
+                  const minutesAgo = 60 - newMinute;
+                  const targetTime = new Date(
+                    now.getTime() - minutesAgo * 60 * 1000
+                  );
+                  const timestamp = targetTime.toISOString();
+                  fetchMapData(timestamp);
+                }}
+                isDark={colorScheme === "dark"}
+              />
+              <View style={styles.timeBarLabelsRow}>
+                <Text
+                  style={[
+                    styles.timeBarLabelSmall,
+                    colorScheme === "dark"
+                      ? styles.textMutedDark
+                      : styles.textMutedLight,
+                  ]}
+                >
+                  1h ago
+                </Text>
+                <Text
+                  style={[
+                    styles.timeBarLabelSmall,
+                    colorScheme === "dark"
+                      ? styles.textMutedDark
+                      : styles.textMutedLight,
+                  ]}
+                >
+                  Now
+                </Text>
+              </View>
+            </View>
+
+            <Pressable
+              style={[
+                styles.timeBarButton,
+                colorScheme === "dark"
+                  ? styles.timeBarButtonDark
+                  : styles.timeBarButtonLight,
+                isPlayingForward && styles.timeBarButtonActive,
+              ]}
+              onPress={handlePlayForward}
+            >
+              <Ionicons
+                name={isPlayingForward ? "pause" : "play-forward"}
+                size={20}
+                color={
+                  isPlayingForward
+                    ? "#ffffff"
+                    : colorScheme === "dark"
+                    ? "#9ca3af"
+                    : "#6b7280"
+                }
+              />
+            </Pressable>
+          </View>
+        </View>
+      )}
     </View>
   );
 };
@@ -2011,10 +2497,18 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     textAlign: "center",
   },
-  actionButton: {
+  actionButtonsContainer: {
     position: "absolute",
     top: 60,
     right: 20,
+    flexDirection: "column",
+    gap: 10,
+  },
+  actionButtonsContainerSecurityMode: {
+    top: 110,
+    justifyContent: "flex-start",
+  },
+  actionButton: {
     width: 50,
     height: 50,
     borderRadius: 25,
@@ -2266,5 +2760,139 @@ const styles = StyleSheet.create({
   },
   overrideBannerButton: {
     padding: 4,
+  },
+  navigationButton: {
+    position: "absolute",
+    bottom: 150,
+    left: 20,
+    right: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    gap: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  navigationButtonLight: {
+    backgroundColor: "#dc2626",
+  },
+  navigationButtonDark: {
+    backgroundColor: "#dc2626",
+  },
+  navigationButtonDisabled: {
+    backgroundColor: "#9ca3af",
+    opacity: 0.6,
+  },
+  navigationButtonText: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  timeBarContainer: {
+    position: "absolute",
+    bottom: 110,
+    left: 20,
+    right: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    borderRadius: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  timeBarContainerLight: {
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
+  },
+  timeBarContainerDark: {
+    backgroundColor: "rgba(15, 23, 42, 0.96)",
+  },
+  timeBarHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 16,
+  },
+  timeBarLabel: {
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  timeBarSliderWrapper: {
+    width: "100%",
+  },
+  timeBarControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  timeBarButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+  },
+  timeBarButtonLight: {
+    backgroundColor: "#f1f5f9",
+    borderColor: "#cbd5e1",
+  },
+  timeBarButtonDark: {
+    backgroundColor: "#1e293b",
+    borderColor: "#334155",
+  },
+  timeBarButtonActive: {
+    backgroundColor: "#3b82f6",
+    borderColor: "#3b82f6",
+  },
+  timeBarProgressWrapper: {
+    flex: 1,
+    position: "relative",
+  },
+  timeBarLabelSmall: {
+    fontSize: 10,
+    fontWeight: "500",
+  },
+  timeBarLabelsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 6,
+  },
+  thickSliderContainer: {
+    height: 50,
+    justifyContent: "center",
+    marginBottom: 6,
+  },
+  thickSliderTrack: {
+    height: 40,
+    borderRadius: 20,
+    width: "100%",
+  },
+  thickSliderFill: {
+    height: 40,
+    borderRadius: 20,
+    position: "absolute",
+    left: 0,
+  },
+  thickSliderThumb: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    position: "absolute",
+    borderWidth: 3,
+    marginLeft: -14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 4,
   },
 });

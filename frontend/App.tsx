@@ -5,6 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Crypto from "expo-crypto";
 import { TabNavigator } from "./src/navigation/TabNavigator";
 import { UUID_STORAGE_KEY } from "./src/config";
+import { SecurityModeProvider } from "./src/contexts/SecurityModeContext";
 
 export default function App() {
   const [isReady, setIsReady] = useState(false);
@@ -44,9 +45,11 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <TabNavigator />
-    </NavigationContainer>
+    <SecurityModeProvider>
+      <NavigationContainer>
+        <TabNavigator />
+      </NavigationContainer>
+    </SecurityModeProvider>
   );
 }
 
