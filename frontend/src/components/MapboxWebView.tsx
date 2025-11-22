@@ -344,6 +344,14 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
             position: relative;
             z-index: 1;
         }
+        .marker {
+            text-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+        }
+        .marker-highlight {
+            transform: scale(1.45);
+            filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.85));
+            opacity: 1;
+        }
     </style>
     </head>
     <body>
@@ -1508,12 +1516,15 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                 } else if (data.type === 'highlightMarker') {
                     const id = data.markerId;
                     currentMarkers.forEach(marker => {
-                        const el = marker.getElement();
-                        if (el.dataset.id === id) {
-                            el.style.fontSize = '45px'; // Scale up
+                        const el = marker?.getElement ? marker.getElement() : null;
+                        if (!el) {
+                            return;
+                        }
+                        if (id && el.dataset.id === id) {
+                            el.classList.add('marker-highlight');
                             el.style.zIndex = '10';
                         } else {
-                            el.style.fontSize = '30px'; // Reset
+                            el.classList.remove('marker-highlight');
                             el.style.zIndex = '1';
                         }
                     });

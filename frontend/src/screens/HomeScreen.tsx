@@ -9,6 +9,7 @@ import {
   Pressable,
   Modal,
   DimensionValue,
+  Alert,
 } from "react-native";
 
 import { useFocusEffect } from "@react-navigation/native";
@@ -981,6 +982,10 @@ type RecommendationsSheetProps = {
   onClose: () => void;
   colorScheme: any;
   tentOccupancy: Record<string, number>;
+  onNavigate?: (poi: any) => void;
+  canNavigate?: boolean;
+  navigationHint?: string;
+  visible?: boolean;
 };
 
 const RecommendationsSheet: React.FC<RecommendationsSheetProps> = ({
@@ -990,9 +995,16 @@ const RecommendationsSheet: React.FC<RecommendationsSheetProps> = ({
   onClose,
   colorScheme,
   tentOccupancy,
+  onNavigate,
+  canNavigate = true,
+  navigationHint,
+  visible = true,
 }) => {
   const isDark = colorScheme === "dark";
-  if (!recommendations || recommendations.length === 0) return null;
+  if (!visible || !recommendations || recommendations.length === 0) return null;
+  const selectedRecommendation = recommendations.find(
+    (item) => item.tent_name === selectedId
+  );
 
   return (
     <View style={styles.bottomOverlay} pointerEvents="box-none">
@@ -1088,6 +1100,43 @@ const RecommendationsSheet: React.FC<RecommendationsSheetProps> = ({
               </Pressable>
             );
           })}
+          {onNavigate && (
+            <>
+              <Pressable
+                style={[
+                  styles.recNavigateButton,
+                  isDark
+                    ? styles.recNavigateButtonDark
+                    : styles.recNavigateButtonLight,
+                  (!selectedRecommendation || !canNavigate) &&
+                    styles.recNavigateButtonDisabled,
+                ]}
+                onPress={() =>
+                  selectedRecommendation && onNavigate(selectedRecommendation)
+                }
+                disabled={!selectedRecommendation || !canNavigate}
+              >
+                <Ionicons name="navigate" size={20} color="#ffffff" />
+                <Text style={styles.recNavigateButtonText}>
+                  {!selectedRecommendation
+                    ? "Select a destination"
+                    : canNavigate
+                    ? "Start navigation"
+                    : "Set position first"}
+                </Text>
+              </Pressable>
+              {!canNavigate && navigationHint ? (
+                <Text
+                  style={[
+                    styles.recNavigateHint,
+                    isDark ? styles.textMutedDark : styles.textMutedLight,
+                  ]}
+                >
+                  {navigationHint}
+                </Text>
+              ) : null}
+            </>
+          )}
         </View>
       </View>
     </View>
@@ -1211,17 +1260,72 @@ const FriendSheet: React.FC<FriendSheetProps> = ({
 };
 
 const STATIC_POIS = [
-  { id: "schottenhammel", name: "Schottenhammel", type: "tent", ...POI_COORDINATES.schottenhammel },
-  { id: "loewenbraeu", name: "Löwenbräu", type: "tent", ...POI_COORDINATES.loewenbraeu },
-  { id: "hacker_festzelt", name: "Hacker Festzelt", type: "tent", ...POI_COORDINATES.hacker_festzelt },
-  { id: "paulaner", name: "Paulaner", type: "tent", ...POI_COORDINATES.paulaner },
-  { id: "kaefer", name: "Käfer Wiesn-Schänke", type: "food", ...POI_COORDINATES.kaefer },
-  { id: "augustiner", name: "Augustiner", type: "tent", ...POI_COORDINATES.augustiner },
-  { id: "wilde_maus", name: "Wilde Maus", type: "roller_coaster", ...POI_COORDINATES.wilde_maus },
-  { id: "teufelsrad", name: "Teufelsrad", type: "roller_coaster", ...POI_COORDINATES.teufelsrad },
-  { id: "hexenschaukel", name: "Hexenschaukel", type: "roller_coaster", ...POI_COORDINATES.hexenschaukel },
-  { id: "kalbsbratierei_heimer", name: "Kalbsbraterei Heimer", type: "food", ...POI_COORDINATES.kalbsbratierei_heimer },
-  { id: "cafe_kaiserschmarn_rischart", name: "Café Kaiserschmarrn", type: "food", ...POI_COORDINATES.cafe_kaiserschmarn_rischart },
+  {
+    id: "schottenhammel",
+    name: "Schottenhammel",
+    type: "tent",
+    ...POI_COORDINATES.schottenhammel,
+  },
+  {
+    id: "loewenbraeu",
+    name: "Löwenbräu",
+    type: "tent",
+    ...POI_COORDINATES.loewenbraeu,
+  },
+  {
+    id: "hacker_festzelt",
+    name: "Hacker Festzelt",
+    type: "tent",
+    ...POI_COORDINATES.hacker_festzelt,
+  },
+  {
+    id: "paulaner",
+    name: "Paulaner",
+    type: "tent",
+    ...POI_COORDINATES.paulaner,
+  },
+  {
+    id: "kaefer",
+    name: "Käfer Wiesn-Schänke",
+    type: "food",
+    ...POI_COORDINATES.kaefer,
+  },
+  {
+    id: "augustiner",
+    name: "Augustiner",
+    type: "tent",
+    ...POI_COORDINATES.augustiner,
+  },
+  {
+    id: "wilde_maus",
+    name: "Wilde Maus",
+    type: "roller_coaster",
+    ...POI_COORDINATES.wilde_maus,
+  },
+  {
+    id: "teufelsrad",
+    name: "Teufelsrad",
+    type: "roller_coaster",
+    ...POI_COORDINATES.teufelsrad,
+  },
+  {
+    id: "hexenschaukel",
+    name: "Hexenschaukel",
+    type: "roller_coaster",
+    ...POI_COORDINATES.hexenschaukel,
+  },
+  {
+    id: "kalbsbratierei_heimer",
+    name: "Kalbsbraterei Heimer",
+    type: "food",
+    ...POI_COORDINATES.kalbsbratierei_heimer,
+  },
+  {
+    id: "cafe_kaiserschmarn_rischart",
+    name: "Café Kaiserschmarrn",
+    type: "food",
+    ...POI_COORDINATES.cafe_kaiserschmarn_rischart,
+  },
 ];
 
 type POIDetailsSheetProps = {
@@ -1351,17 +1455,25 @@ const POIDetailsSheet: React.FC<POIDetailsSheetProps> = ({
   );
 };
 
-const getDistanceFromLatLonInM = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+const getDistanceFromLatLonInM = (
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+) => {
   try {
     const R = 6371; // Radius of the Earth in kilometers
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const lat1Rad = lat1 * Math.PI / 180;
-    const lat2Rad = lat2 * Math.PI / 180;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const lat1Rad = (lat1 * Math.PI) / 180;
+    const lat2Rad = (lat2 * Math.PI) / 180;
 
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1Rad) * Math.cos(lat2Rad);
+      Math.sin(dLon / 2) *
+        Math.sin(dLon / 2) *
+        Math.cos(lat1Rad) *
+        Math.cos(lat2Rad);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     const distance = R * c * 1000; // Convert to meters
 
@@ -1425,7 +1537,9 @@ export const HomeScreen = () => {
   const [selectedTile, setSelectedTile] = useState<SelectedTile>(null);
   const [isSheetVisible, setIsSheetVisible] = useState(false);
   const [isActionPopupVisible, setIsActionPopupVisible] = useState(false);
-  const [tentOccupancy, setTentOccupancy] = useState<Record<string, number>>({});
+  const [tentOccupancy, setTentOccupancy] = useState<Record<string, number>>(
+    {}
+  );
 
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [selectedRecId, setSelectedRecId] = useState<string | null>(null);
@@ -1455,27 +1569,36 @@ export const HomeScreen = () => {
   const [timeSeriesMinute, setTimeSeriesMinute] = useState(60); // 60 = now, 0 = 1 hour ago
   const [isPlayingForward, setIsPlayingForward] = useState(false);
   const [isPlayingBackward, setIsPlayingBackward] = useState(false);
+  const [areRecommendationsVisible, setAreRecommendationsVisible] =
+    useState(false);
+  const [activeNavigation, setActiveNavigation] = useState<{
+    destination: { longitude: number; latitude: number };
+    label: string;
+  } | null>(null);
 
-  const handleRecSelect = useCallback((id: string) => {
-    // Check if it's a recommendation
-    const rec = recommendations.find((r) => r.tent_name === id);
-    if (rec) {
-      setSelectedRecId(id);
-      mapRef.current?.highlightMarker(id);
-      setIsPOISheetVisible(false); // Ensure POI sheet is closed
-      return;
-    }
+  const handleRecSelect = useCallback(
+    (id: string) => {
+      // Check if it's a recommendation
+      const rec = recommendations.find((r) => r.tent_name === id);
+      if (rec) {
+        setSelectedRecId(id);
+        mapRef.current?.highlightMarker(id);
+        setIsPOISheetVisible(false); // Ensure POI sheet is closed
+        return;
+      }
 
-    // Check if it's a static POI
-    // Try matching by name or id
-    const poi = STATIC_POIS.find((p) => p.name === id || p.id === id);
-    if (poi) {
-      setSelectedPOI(poi);
-      setIsPOISheetVisible(true);
-      setIsSheetVisible(false);
-      setSelectedTile(null);
-    }
-  }, [recommendations]);
+      // Check if it's a static POI
+      // Try matching by name or id
+      const poi = STATIC_POIS.find((p) => p.name === id || p.id === id);
+      if (poi) {
+        setSelectedPOI(poi);
+        setIsPOISheetVisible(true);
+        setIsSheetVisible(false);
+        setSelectedTile(null);
+      }
+    },
+    [recommendations]
+  );
 
   const fetchFriends = useCallback(async () => {
     try {
@@ -1729,6 +1852,8 @@ export const HomeScreen = () => {
         return;
       }
 
+      setActiveNavigation(null);
+      mapRef.current?.hideRoute();
       const distancePreference = 1 - preference;
       let requests: Promise<any>[] = [];
 
@@ -1781,12 +1906,13 @@ export const HomeScreen = () => {
       }
 
       setRecommendations(enrichedResults);
+      setAreRecommendationsVisible(enrichedResults.length > 0);
       if (enrichedResults.length > 0) {
         // Select the first recommendation directly to avoid stale state issues in handleRecSelect
         const firstId = enrichedResults[0].tent_name;
         setSelectedRecId(firstId);
         mapRef.current?.highlightMarker(firstId);
-        
+
         setIsSheetVisible(false); // Close tile sheet
         setIsPOISheetVisible(false); // Close POI sheet
         setSelectedTile(null);
@@ -1796,6 +1922,78 @@ export const HomeScreen = () => {
       console.error("Error fetching recommendations:", e);
     }
   };
+
+  const handleNavigateToRecommendation = useCallback(
+    (poi: any) => {
+      if (!poi) {
+        return;
+      }
+
+      if (!myPosition) {
+        Alert.alert(
+          "Set your position first",
+          "Long press on the map to drop a pin for your current location."
+        );
+        return;
+      }
+
+      const lonCandidate =
+        poi.longitude ??
+        poi.lon ??
+        poi.lng ??
+        (Array.isArray(poi.coordinates) ? poi.coordinates[0] : undefined);
+      const latCandidate =
+        poi.latitude ??
+        poi.lat ??
+        (Array.isArray(poi.coordinates) ? poi.coordinates[1] : undefined);
+
+      const destination = {
+        longitude:
+          typeof lonCandidate === "string"
+            ? parseFloat(lonCandidate)
+            : lonCandidate,
+        latitude:
+          typeof latCandidate === "string"
+            ? parseFloat(latCandidate)
+            : latCandidate,
+      };
+
+      if (
+        typeof destination.longitude !== "number" ||
+        Number.isNaN(destination.longitude) ||
+        typeof destination.latitude !== "number" ||
+        Number.isNaN(destination.latitude)
+      ) {
+        Alert.alert(
+          "Destination unavailable",
+          "We couldn't find valid coordinates for that location."
+        );
+        return;
+      }
+
+      mapRef.current?.showRoute(
+        { longitude: myPosition.longitude, latitude: myPosition.latitude },
+        destination
+      );
+      setActiveNavigation({
+        destination,
+        label: poi.tent_name || poi.name || poi.id || "Destination",
+      });
+      setAreRecommendationsVisible(false);
+      setRecommendations([]);
+      setSelectedRecId(null);
+      setSelectedPOI(null);
+      setIsPOISheetVisible(false);
+      setIsSheetVisible(false);
+      mapRef.current?.addMarkers(STATIC_POIS);
+    },
+    [myPosition]
+  );
+
+  const handleEndSearchNavigation = useCallback(() => {
+    mapRef.current?.hideRoute();
+    setActiveNavigation(null);
+  }, []);
 
   const handleAssemble = async () => {
     try {
@@ -2021,10 +2219,12 @@ export const HomeScreen = () => {
         </View>
       )}
 
-      <View style={[
-        styles.actionButtonsContainer,
-        isSecurityMode && styles.actionButtonsContainerSecurityMode
-      ]}>
+      <View
+        style={[
+          styles.actionButtonsContainer,
+          isSecurityMode && styles.actionButtonsContainerSecurityMode,
+        ]}
+      >
         {!isSecurityMode && (
           <Pressable
             style={[
@@ -2094,6 +2294,21 @@ export const HomeScreen = () => {
           </Text>
         </Pressable>
       )}
+      {activeNavigation && (
+        <Pressable
+          style={[
+            styles.navigationButton,
+            colorScheme === "dark"
+              ? styles.navigationButtonDark
+              : styles.navigationButtonLight,
+            styles.endNavigationButton,
+          ]}
+          onPress={handleEndSearchNavigation}
+        >
+          <Ionicons name="close-circle" size={24} color="#ffffff" />
+          <Text style={styles.navigationButtonText}>End navigation</Text>
+        </Pressable>
+      )}
 
       <ActionPopup
         visible={isActionPopupVisible}
@@ -2114,20 +2329,25 @@ export const HomeScreen = () => {
         selectedId={selectedRecId}
         onSelect={handleRecSelect}
         onClose={() => {
+          setAreRecommendationsVisible(false);
           setRecommendations([]);
           setSelectedRecId(null);
           mapRef.current?.addMarkers(STATIC_POIS);
         }}
         colorScheme={colorScheme}
         tentOccupancy={tentOccupancy}
+        onNavigate={handleNavigateToRecommendation}
+        canNavigate={!!myPosition}
+        navigationHint="Long press the map to set your position before navigating."
+        visible={areRecommendationsVisible}
       />
 
       <POIDetailsSheet
         poi={selectedPOI}
         visible={isPOISheetVisible}
         onClose={() => {
-            setIsPOISheetVisible(false);
-            setSelectedPOI(null);
+          setIsPOISheetVisible(false);
+          setSelectedPOI(null);
         }}
         colorScheme={colorScheme}
         tentOccupancy={tentOccupancy}
@@ -2669,6 +2889,35 @@ const styles = StyleSheet.create({
     marginTop: 4,
     gap: 12,
   },
+  recNavigateButton: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+  },
+  recNavigateButtonLight: {
+    backgroundColor: "#16a34a",
+  },
+  recNavigateButtonDark: {
+    backgroundColor: "#22c55e",
+  },
+  recNavigateButtonDisabled: {
+    backgroundColor: "#9ca3af",
+    opacity: 0.85,
+  },
+  recNavigateButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  recNavigateHint: {
+    marginTop: 6,
+    fontSize: 12,
+    textAlign: "center",
+  },
   occupancyContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -2793,6 +3042,9 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 18,
     fontWeight: "700",
+  },
+  endNavigationButton: {
+    bottom: 100,
   },
   timeBarContainer: {
     position: "absolute",
