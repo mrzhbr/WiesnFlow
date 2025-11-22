@@ -28,6 +28,10 @@ export interface MapboxWebViewRef {
   addFriendMarkers: (friends: any[]) => void;
   updateMyPosition: (position: { longitude: number; latitude: number; name: string } | null) => void;
   highlightMarker: (markerId: string) => void;
+  showAssembleMarkers: (centerPoint: { longitude: number; latitude: number }, finalPoint: { longitude: number; latitude: number }) => void;
+  hideAssembleMarkers: () => void;
+  showRoute: (origin: { longitude: number; latitude: number }, destination: { longitude: number; latitude: number }) => void;
+  hideRoute: () => void;
 }
 
 export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
@@ -101,6 +105,38 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
           JSON.stringify({
             type: "updateMyPosition",
             position,
+          })
+        );
+      },
+      showAssembleMarkers: (centerPoint, finalPoint) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "showAssembleMarkers",
+            centerPoint,
+            finalPoint,
+          })
+        );
+      },
+      hideAssembleMarkers: () => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "hideAssembleMarkers",
+          })
+        );
+      },
+      showRoute: (origin, destination) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "showRoute",
+            origin,
+            destination,
+          })
+        );
+      },
+      hideRoute: () => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "hideRoute",
           })
         );
       },
@@ -934,6 +970,259 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
             }
         }
 
+        function showAssembleMarkers(centerPoint, finalPoint) {
+            // Add sources and layers for assemble markers
+            // 1. Center point (light red smaller circle)
+            const centerGeojson = {
+                type: 'FeatureCollection',
+                features: [{
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [centerPoint.longitude, centerPoint.latitude]
+                    },
+                    properties: {}
+                }]
+            };
+            
+            // 2. Final point (bigger redder target marker)
+            const finalGeojson = {
+                type: 'FeatureCollection',
+                features: [{
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [finalPoint.longitude, finalPoint.latitude]
+                    },
+                    properties: {}
+                }]
+            };
+            
+            // 3. Arrow line from center to final
+            const arrowGeojson = {
+                type: 'FeatureCollection',
+                features: [{
+                    type: 'Feature',
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: [
+                            [centerPoint.longitude, centerPoint.latitude],
+                            [finalPoint.longitude, finalPoint.latitude]
+                        ]
+                    },
+                    properties: {}
+                }]
+            };
+            
+            // Add or update center point
+            if (!map.getSource('assemble-center')) {
+                map.addSource('assemble-center', {
+                    type: 'geojson',
+                    data: centerGeojson
+                });
+                
+                map.addLayer({
+                    id: 'assemble-center-circle',
+                    type: 'circle',
+                    source: 'assemble-center',
+                    paint: {
+                        'circle-radius': 10,
+                        'circle-color': '#fca5a5',
+                        'circle-opacity': 0.7,
+                        'circle-stroke-width': 2,
+                        'circle-stroke-color': '#ef4444'
+                    }
+                });
+            } else {
+                map.getSource('assemble-center').setData(centerGeojson);
+            }
+            
+            // Add or update final point
+            if (!map.getSource('assemble-final')) {
+                map.addSource('assemble-final', {
+                    type: 'geojson',
+                    data: finalGeojson
+                });
+                
+                // Outer glow
+                map.addLayer({
+                    id: 'assemble-final-glow',
+                    type: 'circle',
+                    source: 'assemble-final',
+                    paint: {
+                        'circle-radius': 20,
+                        'circle-color': '#dc2626',
+                        'circle-opacity': 0.3
+                    }
+                });
+                
+                // Main circle
+                map.addLayer({
+                    id: 'assemble-final-circle',
+                    type: 'circle',
+                    source: 'assemble-final',
+                    paint: {
+                        'circle-radius': 15,
+                        'circle-color': '#dc2626',
+                        'circle-opacity': 0.9,
+                        'circle-stroke-width': 3,
+                        'circle-stroke-color': '#ffffff'
+                    }
+                });
+            } else {
+                map.getSource('assemble-final').setData(finalGeojson);
+            }
+            
+            // Add or update arrow line
+            if (!map.getSource('assemble-arrow')) {
+                map.addSource('assemble-arrow', {
+                    type: 'geojson',
+                    data: arrowGeojson
+                });
+                
+                map.addLayer({
+                    id: 'assemble-arrow-line',
+                    type: 'line',
+                    source: 'assemble-arrow',
+                    paint: {
+                        'line-color': '#dc2626',
+                        'line-width': 3,
+                        'line-opacity': 0.6
+                    }
+                });
+            } else {
+                map.getSource('assemble-arrow').setData(arrowGeojson);
+            }
+        }
+        
+        function hideAssembleMarkers() {
+            // Remove sources and layers
+            if (map.getLayer('assemble-center-circle')) {
+                map.removeLayer('assemble-center-circle');
+            }
+            if (map.getSource('assemble-center')) {
+                map.removeSource('assemble-center');
+            }
+            
+            if (map.getLayer('assemble-final-glow')) {
+                map.removeLayer('assemble-final-glow');
+            }
+            if (map.getLayer('assemble-final-circle')) {
+                map.removeLayer('assemble-final-circle');
+            }
+            if (map.getSource('assemble-final')) {
+                map.removeSource('assemble-final');
+            }
+            
+            if (map.getLayer('assemble-arrow-line')) {
+                map.removeLayer('assemble-arrow-line');
+            }
+            if (map.getSource('assemble-arrow')) {
+                map.removeSource('assemble-arrow');
+            }
+        }
+        
+        async function showRoute(origin, destination) {
+            try {
+                // Call Mapbox Directions API to get walking route
+                const url = 'https://api.mapbox.com/directions/v5/mapbox/walking/' + 
+                    origin.longitude + ',' + origin.latitude + ';' +
+                    destination.longitude + ',' + destination.latitude +
+                    '?geometries=geojson&access_token=' + mapboxgl.accessToken;
+                
+                log('Fetching route from: ' + url);
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    log('Error fetching route: ' + response.status);
+                    return;
+                }
+                
+                const data = await response.json();
+                log('Route data received: ' + JSON.stringify(data));
+                
+                if (!data.routes || data.routes.length === 0) {
+                    log('No routes found');
+                    return;
+                }
+                
+                const route = data.routes[0];
+                const routeGeometry = route.geometry;
+                
+                // Create GeoJSON for the route
+                const routeGeojson = {
+                    type: 'FeatureCollection',
+                    features: [{
+                        type: 'Feature',
+                        geometry: routeGeometry,
+                        properties: {}
+                    }]
+                };
+                
+                // Add or update route source
+                if (!map.getSource('navigation-route')) {
+                    map.addSource('navigation-route', {
+                        type: 'geojson',
+                        data: routeGeojson
+                    });
+                    
+                    // Add route line layer (background/casing)
+                    map.addLayer({
+                        id: 'navigation-route-casing',
+                        type: 'line',
+                        source: 'navigation-route',
+                        paint: {
+                            'line-color': '#1e3a8a',
+                            'line-width': 10,
+                            'line-opacity': 0.4
+                        }
+                    });
+                    
+                    // Add route line layer (main line)
+                    map.addLayer({
+                        id: 'navigation-route-line',
+                        type: 'line',
+                        source: 'navigation-route',
+                        paint: {
+                            'line-color': '#3b82f6',
+                            'line-width': 6,
+                            'line-opacity': 0.9
+                        }
+                    });
+                } else {
+                    map.getSource('navigation-route').setData(routeGeojson);
+                }
+                
+                // Fit the map to show the entire route
+                const coordinates = routeGeometry.coordinates;
+                const bounds = coordinates.reduce(function(bounds, coord) {
+                    return bounds.extend(coord);
+                }, new mapboxgl.LngLatBounds(coordinates[0], coordinates[0]));
+                
+                map.fitBounds(bounds, {
+                    padding: { top: 100, bottom: 100, left: 50, right: 50 },
+                    duration: 1000
+                });
+                
+                log('Route displayed successfully');
+            } catch (error) {
+                log('Error showing route: ' + error.toString());
+            }
+        }
+        
+        function hideRoute() {
+            // Remove route layers and source
+            if (map.getLayer('navigation-route-line')) {
+                map.removeLayer('navigation-route-line');
+            }
+            if (map.getLayer('navigation-route-casing')) {
+                map.removeLayer('navigation-route-casing');
+            }
+            if (map.getSource('navigation-route')) {
+                map.removeSource('navigation-route');
+            }
+        }
+
         function handleMessage(event) {
             try {
                 log('Received message: ' + JSON.stringify(event.data));
@@ -976,6 +1265,18 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                     }
                 } else if (data.type === 'setTileInteractions') {
                     tileInteractionsEnabled = data.enabled;
+                } else if (data.type === 'showAssembleMarkers') {
+                    log('Showing assemble markers');
+                    showAssembleMarkers(data.centerPoint, data.finalPoint);
+                } else if (data.type === 'hideAssembleMarkers') {
+                    log('Hiding assemble markers');
+                    hideAssembleMarkers();
+                } else if (data.type === 'showRoute') {
+                    log('Showing route');
+                    showRoute(data.origin, data.destination);
+                } else if (data.type === 'hideRoute') {
+                    log('Hiding route');
+                    hideRoute();
                 } else if (data.type === 'updateTileData') {
                     log('Updating tile data with ' + Object.keys(data.tiles).length + ' entries');
                     const incomingTiles = data.tiles;

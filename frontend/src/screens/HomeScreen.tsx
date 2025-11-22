@@ -1090,6 +1090,13 @@ export const HomeScreen = () => {
     longitude: number;
     latitude: number;
   } | null>(null);
+  const [isAssembleActive, setIsAssembleActive] = useState(false);
+  const [isAssembleLoading, setIsAssembleLoading] = useState(false);
+  const [assembleFinalPoint, setAssembleFinalPoint] = useState<{
+    longitude: number;
+    latitude: number;
+  } | null>(null);
+  const [isRouteShowing, setIsRouteShowing] = useState(false);
 
   const handleRecSelect = useCallback((id: string) => {
     setSelectedRecId(id);
@@ -1407,6 +1414,85 @@ export const HomeScreen = () => {
     }
   };
 
+  const handleAssemble = async () => {
+    try {
+      // If already active, just hide markers and reset
+      if (isAssembleActive) {
+        mapRef.current?.hideAssembleMarkers();
+        mapRef.current?.hideRoute();
+        setIsAssembleActive(false);
+        setAssembleFinalPoint(null);
+        setIsRouteShowing(false);
+        return;
+      }
+
+      // Start loading
+      setIsAssembleLoading(true);
+
+      const userId = await AsyncStorage.getItem(UUID_STORAGE_KEY);
+      if (!userId) {
+        console.log("No user ID found for assemble");
+        setIsAssembleLoading(false);
+        return;
+      }
+
+      const url = `${API_BASE_URL}/friends/assemble?user_id=${userId}`;
+      console.log("[HomeScreen] Calling assemble endpoint:", url);
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        console.error(
+          `[HomeScreen] HTTP error ${response.status} calling assemble`
+        );
+        setIsAssembleLoading(false);
+        return;
+      }
+
+      const data = await response.json();
+      console.log("[HomeScreen] Assemble response:", data);
+
+      if (data.status === "success" && data.center_point && data.final_point) {
+        // Show markers on map
+        mapRef.current?.showAssembleMarkers(
+          data.center_point,
+          data.final_point
+        );
+        setIsAssembleActive(true);
+        setAssembleFinalPoint(data.final_point);
+      } else {
+        console.error("[HomeScreen] Assemble failed:", data.message);
+      }
+    } catch (error) {
+      console.error("[HomeScreen] Error calling assemble:", error);
+    } finally {
+      setIsAssembleLoading(false);
+    }
+  };
+
+  const handleShowRoute = useCallback(async () => {
+    if (!assembleFinalPoint) {
+      console.log("No assembly point available");
+      return;
+    }
+
+    if (!myPosition) {
+      console.log(
+        "No current position available - please set your position first (long press on map)"
+      );
+      return;
+    }
+
+    console.log(
+      "[HomeScreen] Showing route from",
+      myPosition,
+      "to",
+      assembleFinalPoint
+    );
+    // Show the route from current position to assembly point
+    mapRef.current?.showRoute(myPosition, assembleFinalPoint);
+    setIsRouteShowing(true);
+  }, [assembleFinalPoint, myPosition]);
+
   return (
     <View style={styles.container}>
       <MapboxWebView
@@ -1460,17 +1546,57 @@ export const HomeScreen = () => {
         </View>
       )}
 
-      <Pressable
-        style={[
-          styles.actionButton,
-          colorScheme === "dark"
-            ? styles.actionButtonDark
-            : styles.actionButtonLight,
-        ]}
-        onPress={() => setIsActionPopupVisible(true)}
-      >
-        <Ionicons name="search" size={30} color="#16a34a" />
-      </Pressable>
+      <View style={styles.actionButtonsContainer}>
+        <Pressable
+          style={[
+            styles.actionButton,
+            colorScheme === "dark"
+              ? styles.actionButtonDark
+              : styles.actionButtonLight,
+          ]}
+          onPress={handleAssemble}
+        >
+          {isAssembleLoading ? (
+            <Ionicons name="hourglass" size={30} color="#dc2626" />
+          ) : (
+            <Ionicons
+              name="people"
+              size={30}
+              color={isAssembleActive ? "#dc2626" : "#6b7280"}
+            />
+          )}
+        </Pressable>
+        <Pressable
+          style={[
+            styles.actionButton,
+            colorScheme === "dark"
+              ? styles.actionButtonDark
+              : styles.actionButtonLight,
+          ]}
+          onPress={() => setIsActionPopupVisible(true)}
+        >
+          <Ionicons name="search" size={30} color="#16a34a" />
+        </Pressable>
+      </View>
+
+      {isAssembleActive && assembleFinalPoint && !isRouteShowing && (
+        <Pressable
+          style={[
+            styles.navigationButton,
+            colorScheme === "dark"
+              ? styles.navigationButtonDark
+              : styles.navigationButtonLight,
+            !myPosition && styles.navigationButtonDisabled,
+          ]}
+          onPress={handleShowRoute}
+          disabled={!myPosition}
+        >
+          <Ionicons name="navigate" size={24} color="#ffffff" />
+          <Text style={styles.navigationButtonText}>
+            {!myPosition ? "Set Position First" : "Show Route"}
+          </Text>
+        </Pressable>
+      )}
 
       <ActionPopup
         visible={isActionPopupVisible}
@@ -1736,10 +1862,14 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     textAlign: "center",
   },
-  actionButton: {
+  actionButtonsContainer: {
     position: "absolute",
     top: 60,
     right: 20,
+    flexDirection: "row",
+    gap: 10,
+  },
+  actionButton: {
     width: 50,
     height: 50,
     borderRadius: 25,
@@ -1963,5 +2093,38 @@ const styles = StyleSheet.create({
   },
   overrideBannerButton: {
     padding: 4,
+  },
+  navigationButton: {
+    position: "absolute",
+    bottom: 150,
+    left: 20,
+    right: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    gap: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  navigationButtonLight: {
+    backgroundColor: "#dc2626",
+  },
+  navigationButtonDark: {
+    backgroundColor: "#dc2626",
+  },
+  navigationButtonDisabled: {
+    backgroundColor: "#9ca3af",
+    opacity: 0.6,
+  },
+  navigationButtonText: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "700",
   },
 });
