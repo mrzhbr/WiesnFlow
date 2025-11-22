@@ -279,3 +279,38 @@ def assign_positions_to_tents(positions: List[Dict]) -> Dict[str, int]:
     
     return tent_counts
 
+
+def count_to_color(count: int, min_count: int = 1, max_count: int = 10) -> str:
+    """
+    Convert a count value to a color string (RGBA format).
+    Maps count from min_count (green) to max_count (red) with interpolation.
+    Count of 0 returns transparent gray.
+    
+    Args:
+        count: The count value to convert
+        min_count: Minimum count value (maps to green)
+        max_count: Maximum count value (maps to red)
+        
+    Returns:
+        RGBA color string like "rgba(0, 255, 0, 0.5)" for green or "rgba(255, 0, 0, 0.5)" for red
+        Returns "rgba(128, 128, 128, 0.1)" for count=0
+    """
+    # If count is 0, return transparent gray
+    if count == 0:
+        return "rgba(128, 128, 128, 0.1)"
+    
+    # Clamp count to valid range
+    count = max(min_count, min(count, max_count))
+    
+    # Normalize count to 0-1 range
+    normalized = (count - min_count) / (max_count - min_count) if max_count > min_count else 0
+    
+    # Interpolate between green (0, 255, 0) and red (255, 0, 0)
+    # Green: RGB(0, 255, 0)
+    # Red: RGB(255, 0, 0)
+    red = int(255 * normalized)
+    green = int(255 * (1 - normalized))
+    blue = 0
+    
+    # Use 0.5 opacity for visibility
+    return f"rgba({red}, {green}, {blue}, 0.5)"
