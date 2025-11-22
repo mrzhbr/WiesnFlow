@@ -722,9 +722,8 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
         let currentMarkers = [];
         let currentRouteXMarkers = [];
 
-        // Function to add markers to the map
+        // Function to add markers (POIs, search results, entrances, etc.)
         function addMarkers(markers) {
-            // Remove existing markers
             currentMarkers.forEach(marker => marker.remove());
             currentMarkers = [];
 
@@ -732,33 +731,87 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                 return;
             }
 
+            const getEmojiForType = (type) => {
+                if (!type) return '📍';
+                const normalized = String(type).toLowerCase();
+                if (normalized === 'entrance') return '🔴';
+                if (normalized === 'ubahn') return 'Ⓜ️';
+                if (normalized === 'tent') return '🍺';
+                if (normalized === 'roller_coaster' || normalized === 'ride' || normalized === 'rides') return '🎡';
+                if (normalized === 'food') return '🥨';
+                return '📍';
+            };
+
             markers.forEach(markerData => {
-                // Create a custom marker element
-                const el = document.createElement('div');
-                el.style.width = '32px';
-                el.style.height = '32px';
-                el.style.fontSize = '24px';
-                el.style.cursor = 'pointer';
-                el.style.textAlign = 'center';
-                el.style.lineHeight = '32px';
-                
-                // Set emoji based on type
-                if (markerData.type === 'entrance') {
-                    el.textContent = '🔴';
-                } else if (markerData.type === 'ubahn') {
-                    el.textContent = 'Ⓜ️';
+                if (!markerData) {
+                    return;
                 }
 
-                // Create the marker
-                const marker = new mapboxgl.Marker(el)
-                    .setLngLat(markerData.coordinates)
-                    .setPopup(
-                        new mapboxgl.Popup({ offset: 25 })
-                            .setHTML('<div style="font-weight: 600;">' + markerData.name + '</div>' + 
-                                    (markerData.lines ? '<div style="font-size: 12px; color: #666; margin-top: 4px;">Lines: ' + markerData.lines.join(', ') + '</div>' : ''))
-                    )
-                    .addTo(map);
+                let lng;
+                let lat;
+                if (Array.isArray(markerData.coordinates) && markerData.coordinates.length >= 2) {
+                    lng = parseFloat(markerData.coordinates[0]);
+                    lat = parseFloat(markerData.coordinates[1]);
+                } else {
+                    lng = markerData.longitude ?? markerData.lon ?? markerData.lng ?? markerData.long;
+                    lat = markerData.latitude ?? markerData.lat;
+                    lng = parseFloat(lng);
+                    lat = parseFloat(lat);
+                }
 
+                if (isNaN(lng) || isNaN(lat)) {
+                    log('Skipping marker with invalid coords: ' + JSON.stringify(markerData));
+                    return;
+                }
+
+                const markerId = markerData.tent_name || markerData.id || markerData.name;
+                const label = markerData.name || markerData.tent_name || 'Point of Interest';
+                const emoji = markerData.emoji || getEmojiForType(markerData.type);
+
+                const el = document.createElement('div');
+                el.className = 'marker';
+                el.style.fontSize = ['🔴', 'Ⓜ️'].includes(emoji) ? '24px' : '30px';
+                el.style.cursor = 'pointer';
+                el.style.lineHeight = '1';
+                el.textContent = emoji;
+                if (markerId) {
+                    el.dataset.id = markerId;
+                }
+
+                el.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    lastMarkerClickTime = Date.now();
+                    if (window.ReactNativeWebView && markerId) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'markerPress',
+                            markerId: markerId
+                        }));
+                    }
+                });
+
+                const marker = new mapboxgl.Marker({
+                    element: el,
+                    anchor: 'center'
+                })
+                .setLngLat([lng, lat]);
+
+                if (label || markerData.lines || markerData.description) {
+                    let popupHtml = '';
+                    if (label) {
+                        popupHtml += '<div style="font-weight: 600;">' + label + '</div>';
+                    }
+                    if (markerData.description) {
+                        popupHtml += '<div style="font-size: 12px; color: #4b5563; margin-top: 4px;">' + markerData.description + '</div>';
+                    }
+                    if (markerData.lines && markerData.lines.length) {
+                        popupHtml += '<div style="font-size: 12px; color: #6b7280; margin-top: 4px;">Lines: ' + markerData.lines.join(', ') + '</div>';
+                    }
+                    marker.setPopup(
+                        new mapboxgl.Popup({ offset: 20 }).setHTML(popupHtml)
+                    );
+                }
+
+                marker.addTo(map);
                 currentMarkers.push(marker);
             });
 
@@ -857,67 +910,6 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
         let tileInteractionsEnabled = true;
 
         let lastMarkerClickTime = 0;
-
-        function updateMarkers(markers) {
-            // Remove existing markers
-            currentMarkers.forEach(marker => marker.remove());
-            currentMarkers = [];
-
-            markers.forEach(m => {
-                let emoji = '📍';
-                if (m.type === 'tent') emoji = '🍺';
-                else if (m.type === 'roller_coaster') emoji = '🎡';
-                else if (m.type === 'food') emoji = '🥨';
-
-                // Create a DOM element for the marker
-                const el = document.createElement('div');
-                el.className = 'marker';
-                el.style.fontSize = '30px';
-                el.style.cursor = 'pointer';
-                el.style.lineHeight = '1';
-                el.textContent = emoji;
-                el.dataset.id = m.tent_name || m.name; // Store ID for highlighting
-
-                // Add click listener
-                el.addEventListener('click', (e) => {
-                    e.stopPropagation(); // Prevent map click
-                    lastMarkerClickTime = Date.now();
-                    const id = m.tent_name || m.name;
-                    if (window.ReactNativeWebView) {
-                        window.ReactNativeWebView.postMessage(JSON.stringify({
-                            type: 'markerPress',
-                            markerId: id
-                        }));
-                    }
-                });
-
-                // Robust coordinate extraction
-                let lng = m.lon;
-                if (lng === undefined || lng === null) lng = m.long;
-                if (lng === undefined || lng === null) lng = m.longitude;
-                
-                let lat = m.lat;
-                if (lat === undefined || lat === null) lat = m.latitude;
-                
-                lng = parseFloat(lng);
-                lat = parseFloat(lat);
-
-                if (isNaN(lng) || isNaN(lat)) {
-                    log('Skipping marker with invalid coords: ' + (m.tent_name || m.name) + ' ' + JSON.stringify(m));
-                    return;
-                }
-
-                // Create and add the marker
-                const marker = new mapboxgl.Marker({
-                    element: el,
-                    anchor: 'center'
-                })
-                .setLngLat([lng, lat])
-                .addTo(map);
-
-                currentMarkers.push(marker);
-            });
-        }
 
         function updateFriendMarkers(friends) {
             if (!friends || friends.length === 0) {
