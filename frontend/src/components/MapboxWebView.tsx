@@ -92,6 +92,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
         const map = new mapboxgl.Map({
           container: 'map',
           style: '${mapStyle}',
+          style: '${mapStyle}',
           center: [${initialCenter[0]}, ${initialCenter[1]}],
           zoom: ${initialZoom}
         });
@@ -171,10 +172,12 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
         <View style={[styles.container, style]}>
             <WebView
                 ref={webViewRef}
+                ref={webViewRef}
                 originWhitelist={['*']}
                 source={{ html: htmlContent }}
                 style={styles.webview}
                 scrollEnabled={false}
+                onMessage={handleWebViewMessage}
                 onMessage={handleWebViewMessage}
             />
         </View>
