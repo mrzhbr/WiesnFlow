@@ -96,10 +96,70 @@ async def update_position(position: PositionCreate):
             detail=f"Failed to process position: {str(e)}"
         )
 
+def _insert_or_update_poi_data(counts_dict: dict):
+    """
+    Insert or update aggregated data in the 'pois' table.
+    Only keeps one record per minute per name (same way as for users).
+    Handles both POIs (tents) and tiles.
+    
+    Args:
+        counts_dict: Dictionary mapping name (tent name or tile ID) to count of positions
+    """
+    supabase = get_supabase_client()
+    current_time = datetime.now(timezone.utc)
+    
+    # For each entry (tent or tile), insert or update the record
+    for name, count in counts_dict.items():
+        # Check if there's an existing record for this name in the same minute
+        # Query for records with the same name and created_at in the same minute
+        existing_result = supabase.table("pois").select("*").eq("name", name).order("created_at", desc=True).limit(1).execute()
+        
+        should_update = False
+        entry_id = None
+        
+        if existing_result.data and len(existing_result.data) > 0:
+            old_entry = existing_result.data[0]
+            old_created_at = old_entry.get("created_at")
+            
+            if old_created_at:
+                # Parse the timestamp (Supabase returns ISO format strings)
+                if isinstance(old_created_at, str):
+                    old_timestamp = datetime.fromisoformat(old_created_at.replace('Z', '+00:00'))
+                else:
+                    old_timestamp = old_created_at
+                
+                # Check if timestamps are in the same minute
+                if (old_timestamp.year == current_time.year and
+                    old_timestamp.month == current_time.month and
+                    old_timestamp.day == current_time.day and
+                    old_timestamp.hour == current_time.hour and
+                    old_timestamp.minute == current_time.minute):
+                    should_update = True
+                    entry_id = old_entry.get("id")
+        
+        # Prepare the data to insert/update
+        data = {
+            "name": name,
+            "count": count,
+        }
+        
+        try:
+            if should_update and entry_id:
+                # Update existing entry in the same minute
+                supabase.table("pois").update(data).eq("id", entry_id).execute()
+            else:
+                # Insert new entry
+                supabase.table("pois").insert(data).execute()
+        except Exception as e:
+            # Log error but don't fail - POI insertion is not critical for the main flow
+            print(f"Error inserting/updating POI data for {name}: {e}")
+
+
 def _calculate_map_data() -> dict:
     """
     Helper function to calculate map data (tile counts and tent counts).
     This is the actual aggregation logic that gets cached.
+    Also inserts aggregated POI data into the 'pois' table.
     """
     supabase = get_supabase_client()
     
@@ -125,6 +185,10 @@ def _calculate_map_data() -> dict:
     
     # Count positions within 50m radius of each tent
     tent_counts = assign_positions_to_tents(latest_by_user)
+    
+    # Insert or update aggregated data in the database (both tents and tiles)
+    _insert_or_update_poi_data(tent_counts)
+    _insert_or_update_poi_data(tile_counts)
     
     return {
         "tiles": tile_counts,
