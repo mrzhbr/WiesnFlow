@@ -3,7 +3,7 @@ Tile definitions for Theresienwiese (Oktoberfest grounds).
 Each tile is 50x50 meters, identified by its top-left corner coordinates.
 """
 
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Optional
 import math
 import struct
 
@@ -143,42 +143,174 @@ def assign_positions_to_tiles(positions: List[Dict]) -> Dict[str, int]:
         position_data = pos_entry.get("position")
         if not position_data:
             continue
-            
-        try:
-            # Check if it's a hex string (WKB format)
-            if isinstance(position_data, str) and len(position_data) > 10:
-                # Try to decode as WKB hex string
-                # WKB hex strings are typically long hex strings without spaces
-                if all(c in '0123456789ABCDEFabcdef' for c in position_data):
-                    longitude, latitude = decode_wkb_point(position_data)
-                else:
-                    # Try parsing as text format: "SRID=4326;POINT(longitude latitude)" or "POINT(longitude latitude)"
-                    if ';' in position_data:
-                        point_str = position_data.split(';', 1)[1]
-                    else:
-                        point_str = position_data
-                    
-                    # Extract coordinates: POINT(longitude latitude)
-                    if point_str.upper().startswith('POINT'):
-                        coords = point_str[6:-1]  # Remove "POINT(" and ")"
-                        parts = coords.split()
-                        if len(parts) != 2:
-                            continue
-                        longitude = float(parts[0])
-                        latitude = float(parts[1])
-                    else:
-                        continue
-            else:
-                continue
-            
-            # Get tile ID for this position
-            tile_id = get_tile_id(latitude, longitude)
-            if tile_id:
-                tile_counts[tile_id] = tile_counts.get(tile_id, 0) + 1
-                
-        except (ValueError, IndexError, struct.error) as e:
-            # Skip invalid position entries
+        
+        coords = extract_coordinates(position_data)
+        if coords is None:
             continue
+        
+        longitude, latitude = coords
+        
+        # Get tile ID for this position
+        tile_id = get_tile_id(latitude, longitude)
+        if tile_id:
+            tile_counts[tile_id] = tile_counts.get(tile_id, 0) + 1
     
     return tile_counts
 
+
+# Oktoberfest tent POIs (Points of Interest)
+# Format: (tent_name, longitude, latitude)
+OKTOBERFEST_TENTS: List[Tuple[str, float, float]] = [
+    ("Schottenhammel", 11.548353, 48.132072),
+    ("Loewenbraeu", 11.549452, 48.130993),
+    ("Hacker Festzelt", 11.548750, 48.132990),
+    ("Paulaner", 11.547958, 48.131006),
+    ("Kaefer", 11.547610, 48.130425),
+    ("Augustiner", 11.549934, 48.132894),
+]
+
+# Radius for tent counting in meters
+TENT_RADIUS_METERS = 80
+
+
+def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Calculate the great circle distance between two points on Earth using the Haversine formula.
+    
+    Args:
+        lat1, lon1: Latitude and longitude of first point in decimal degrees
+        lat2, lon2: Latitude and longitude of second point in decimal degrees
+        
+    Returns:
+        Distance in meters
+    """
+    # Earth's radius in meters
+    R = 6371000
+    
+    # Convert degrees to radians
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    
+    # Haversine formula
+    a = math.sin(delta_phi / 2) ** 2 + \
+        math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    
+    return R * c
+
+
+def extract_coordinates(position_data: str) -> Optional[Tuple[float, float]]:
+    """
+    Extract longitude and latitude from PostGIS position data.
+    
+    Args:
+        position_data: PostGIS WKB hex string or POINT format string
+        
+    Returns:
+        Tuple of (longitude, latitude) or None if parsing fails
+    """
+    if not position_data:
+        return None
+    
+    try:
+        # Check if it's a hex string (WKB format)
+        if isinstance(position_data, str) and len(position_data) > 10:
+            # Try to decode as WKB hex string
+            if all(c in '0123456789ABCDEFabcdef' for c in position_data):
+                return decode_wkb_point(position_data)
+            else:
+                # Try parsing as text format: "SRID=4326;POINT(longitude latitude)" or "POINT(longitude latitude)"
+                if ';' in position_data:
+                    point_str = position_data.split(';', 1)[1]
+                else:
+                    point_str = position_data
+                
+                # Extract coordinates: POINT(longitude latitude)
+                if point_str.upper().startswith('POINT'):
+                    coords = point_str[6:-1]  # Remove "POINT(" and ")"
+                    parts = coords.split()
+                    if len(parts) != 2:
+                        return None
+                    longitude = float(parts[0])
+                    latitude = float(parts[1])
+                    return (longitude, latitude)
+    except (ValueError, IndexError, struct.error):
+        pass
+    
+    return None
+
+
+def assign_positions_to_tents(positions: List[Dict]) -> Dict[str, int]:
+    """
+    Count positions within 50 meters of each Oktoberfest tent.
+    Similar to assign_positions_to_tiles, but uses distance-based counting.
+    
+    Args:
+        positions: List of position dictionaries with 'position' field containing PostGIS WKB hex string
+        
+    Returns:
+        Dictionary mapping tent name to count of positions within 50m radius
+    """
+    tent_counts: Dict[str, int] = {}
+    
+    # Initialize all tent counts to 0
+    for tent_name, _, _ in OKTOBERFEST_TENTS:
+        tent_counts[tent_name] = 0
+    
+    for pos_entry in positions:
+        # Extract position from PostGIS format
+        position_data = pos_entry.get("position")
+        if not position_data:
+            continue
+        
+        coords = extract_coordinates(position_data)
+        if coords is None:
+            continue
+        
+        longitude, latitude = coords
+        
+        # Check distance to each tent
+        for tent_name, tent_lon, tent_lat in OKTOBERFEST_TENTS:
+            distance = haversine_distance(latitude, longitude, tent_lat, tent_lon)
+            if distance <= TENT_RADIUS_METERS:
+                tent_counts[tent_name] = tent_counts.get(tent_name, 0) + 1
+    
+    return tent_counts
+
+
+def count_to_color(count: int, min_count: int = 1, max_count: int = 10) -> str:
+    """
+    Convert a count value to a color string (RGBA format).
+    Maps count from min_count (green) to max_count (red) with interpolation.
+    Count of 0 returns transparent gray.
+    
+    Args:
+        count: The count value to convert
+        min_count: Minimum count value (maps to green)
+        max_count: Maximum count value (maps to red)
+        
+    Returns:
+        RGBA color string like "rgba(0, 255, 0, 0.5)" for green or "rgba(255, 0, 0, 0.5)" for red
+        Returns "rgba(128, 128, 128, 0.1)" for count=0
+    """
+    # If count is 0, return transparent gray
+    if count == 0:
+        return "rgba(128, 128, 128, 0.1)"
+    
+    # Clamp count to valid range
+    count = max(min_count, min(count, max_count))
+    
+    # Normalize count to 0-1 range
+    normalized = (count - min_count) / (max_count - min_count) if max_count > min_count else 0
+    
+    # Interpolate between green (0, 255, 0) and red (255, 0, 0)
+    # Green: RGB(0, 255, 0)
+    # Red: RGB(255, 0, 0)
+    red = int(255 * normalized)
+    green = int(255 * (1 - normalized))
+    blue = 0
+    
+    # Use 0.5 opacity for visibility
+    return f"rgba({red}, {green}, {blue}, 0.5)"
