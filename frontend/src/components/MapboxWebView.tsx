@@ -255,28 +255,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                     promoteId: 'tileId'
                 });
                 
-                // 3. Invisible Fill Layer for Clicks
-                map.addLayer({
-                    id: 'oktoberfest-tiles-fill',
-                    type: 'fill',
-                    source: 'oktoberfest-tiles',
-                    paint: {
-                        'fill-color': '#000000',
-                        'fill-opacity': 0 // Invisible
-                        'fill-color': [
-                            'case',
-                            ['==', ['get', 'intensity'], null], 'rgba(59, 130, 246, 0.3)',
-                            ['<', ['get', 'intensity'], 20], 'rgba(34, 197, 94, 0.6)',
-                            ['<', ['get', 'intensity'], 40], 'rgba(234, 179, 8, 0.6)',
-                            ['<', ['get', 'intensity'], 60], 'rgba(249, 115, 22, 0.7)',
-                            ['<', ['get', 'intensity'], 80], 'rgba(239, 68, 68, 0.8)',
-                            'rgba(220, 38, 38, 0.9)'
-                        ],
-                        'fill-opacity': 1
-                    }
-                });
-
-                // 4. Heatmap Layer
+                // 3. Heatmap Layer
                 map.addLayer({
                     id: 'oktoberfest-heatmap',
                     type: 'heatmap',
@@ -323,40 +302,6 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                         'heatmap-opacity': 0.7
                     }
                 });
-                
-            // Add click listener for popups (still on the fill layer)
-            map.on('click', 'oktoberfest-tiles-fill', (e) => {
-                if (e.features.length > 0) {
-                    const feature = e.features[0];
-                    const id = feature.id || feature.properties.tileId; // Try both
-                    const state = map.getFeatureState({ source: 'oktoberfest-tiles', id: id });
-                    const count = state.density || 0;
-                    
-                    new mapboxgl.Popup({
-                        closeButton: false,
-                        maxWidth: '300px',
-                        className: 'glassy-popup'
-                    })
-                    .setLngLat(e.lngLat)
-                    .setHTML('<div class="popup-content"><div class="popup-title">Crowd Density</div><div class="popup-count">' + count + '</div><div class="popup-label">People in this area</div></div>')
-                    .addTo(map);
-                }
-            });
-            
-            // Change cursor on hover
-                map.on('mouseenter', 'oktoberfest-tiles-fill', () => {
-                    map.getCanvas().style.cursor = 'pointer';
-                });
-                map.on('mouseleave', 'oktoberfest-tiles-fill', () => {
-                    map.getCanvas().style.cursor = '';
-                });
-
-                        'line-color': '#1d4ed8',
-                        'line-width': 1,
-                        'line-opacity': 0.5
-                    }
-                });
-                log('Tiles added');
                 
                 // Fetch initial data
                 fetchTileData();
