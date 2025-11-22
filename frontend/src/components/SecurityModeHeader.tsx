@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Switch, useColorScheme, Platform } from 'react-native';
+import { View, StyleSheet, Switch, useColorScheme, Platform } from 'react-native';
 import { useSecurityMode } from '../contexts/SecurityModeContext';
 
 export const SecurityModeHeader: React.FC = () => {
@@ -9,15 +9,6 @@ export const SecurityModeHeader: React.FC = () => {
 
   return (
     <>
-      {/* Security Mode Banner */}
-      {isSecurityMode && (
-        <View style={styles.securityBanner}>
-          <Text style={styles.securityBannerText}>
-            Security Personnel Mode Active
-          </Text>
-        </View>
-      )}
-      
       {/* Toggle Switch */}
       <View style={styles.toggleContainer}>
         <View style={[
@@ -41,31 +32,6 @@ export const SecurityModeHeader: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  securityBanner: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#dc2626',
-    paddingTop: Platform.OS === 'ios' ? 60 : 10,
-    paddingBottom: 10,
-    paddingHorizontal: 16,
-    zIndex: 1000,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  securityBannerText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textAlign: 'center',
-  },
   toggleContainer: {
     position: 'absolute',
     bottom: Platform.OS === 'ios' ? 100 : 80,
@@ -90,18 +56,5 @@ const styles = StyleSheet.create({
   },
   toggleWrapperDark: {
     backgroundColor: 'rgba(31, 41, 55, 0.95)',
-  },
-  toggleLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  toggleLabelActive: {
-    color: '#dc2626',
-  },
-  textLight: {
-    color: '#e5e7eb',
-  },
-  textDark: {
-    color: '#0f172a',
   },
 });

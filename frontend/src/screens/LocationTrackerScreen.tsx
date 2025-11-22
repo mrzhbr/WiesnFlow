@@ -66,10 +66,14 @@ export const LocationTrackerScreen: React.FC = () => {
   const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
     null
   );
-  const [trackingStartTime, setTrackingStartTime] = useState<number | null>(null);
-  const [remainingSeconds, setRemainingSeconds] = useState<number>(600); // 10 minutes = 600 seconds
+  const [trackingStartTime, setTrackingStartTime] = useState<number | null>(
+    null
+  );
+  const [remainingSeconds, setRemainingSeconds] = useState<number>(120); // 2 minutes = 120 seconds
   const [isCouponUnlocked, setIsCouponUnlocked] = useState<boolean>(false);
-  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null
+  );
 
   const pulse = useRef(new Animated.Value(0)).current;
 
@@ -124,7 +128,7 @@ export const LocationTrackerScreen: React.FC = () => {
       // Start countdown
       countdownIntervalRef.current = setInterval(() => {
         const elapsed = Math.floor((Date.now() - trackingStartTime) / 1000);
-        const remaining = Math.max(0, 600 - elapsed);
+        const remaining = Math.max(0, 120 - elapsed);
         setRemainingSeconds(remaining);
 
         if (remaining === 0) {
@@ -344,7 +348,7 @@ export const LocationTrackerScreen: React.FC = () => {
         setSharingId(uid);
         setIsSharing(true);
         setTrackingStartTime(Date.now());
-        setRemainingSeconds(600);
+        setRemainingSeconds(120);
         console.log("[LocationTracker] Location sharing started successfully!");
       } catch (error) {
         const errorMsg = "Error while accessing location";
@@ -362,7 +366,7 @@ export const LocationTrackerScreen: React.FC = () => {
       setIsSharing(false);
       setLocation(null);
       setTrackingStartTime(null);
-      setRemainingSeconds(600);
+      setRemainingSeconds(120);
       console.log("[LocationTracker] Location sharing stopped");
     }
   };
@@ -384,7 +388,7 @@ export const LocationTrackerScreen: React.FC = () => {
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
   return (
@@ -432,89 +436,105 @@ export const LocationTrackerScreen: React.FC = () => {
       >
         {/* Coupon Section */}
         {isSharing && (
-        <View style={styles.couponContainer}>
-          <View style={[
-            styles.couponCard,
-            isDarkMode ? styles.couponCardDark : styles.couponCardLight,
-            !isCouponUnlocked && styles.couponLocked
-          ]}>
-            {/* Ticket notches */}
-            <View style={styles.notchLeft} />
-            <View style={styles.notchRight} />
-            
-            {/* Perforated line */}
-            <View style={styles.perforatedLine} />
-            
-            <View style={styles.couponContent}>
-              {/* Left side - Details */}
-              <View style={styles.couponLeft}>
-                <Text style={[
-                  styles.couponTitle,
-                  isDarkMode ? styles.textDark : styles.textLight,
-                  !isCouponUnlocked && styles.textLocked
-                ]}>
-                  WILDE MAUS
-                </Text>
-                <Text style={[
-                  styles.couponDiscount,
-                  !isCouponUnlocked && styles.textLocked
-                ]}>
-                  25% OFF
-                </Text>
-                <Text style={[
-                  styles.couponSubtitle,
-                  isDarkMode ? styles.textMutedDark : styles.textMutedLight,
-                  !isCouponUnlocked && styles.textLocked
-                ]}>
-                  Oktoberfest Special
-                </Text>
-                
-                {!isCouponUnlocked ? (
-                  <View style={styles.countdownContainer}>
-                    <Text style={[
-                      styles.countdownLabel,
-                      isDarkMode ? styles.textMutedDark : styles.textMutedLight
-                    ]}>
-                      Unlocks in:
-                    </Text>
-                    <Text style={styles.countdownTime}>
-                      {formatTime(remainingSeconds)}
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.unlockedBadge}>
-                    <Text style={styles.unlockedText}>✓ UNLOCKED</Text>
-                  </View>
-                )}
-              </View>
-              
-              {/* Right side - QR Code */}
-              <View style={styles.couponRight}>
-                <View style={[
-                  styles.qrContainer,
-                  !isCouponUnlocked && styles.qrLocked
-                ]}>
-                  {isCouponUnlocked ? (
-                    <QRCode
-                      value="WILDEMAUS25OFF"
-                      size={100}
-                      backgroundColor="transparent"
-                      color={isDarkMode ? "#ffffff" : "#000000"}
-                    />
+          <View style={styles.couponContainer}>
+            <View
+              style={[
+                styles.couponCard,
+                isDarkMode ? styles.couponCardDark : styles.couponCardLight,
+                !isCouponUnlocked && styles.couponLocked,
+              ]}
+            >
+              {/* Ticket notches */}
+              <View style={styles.notchLeft} />
+              <View style={styles.notchRight} />
+
+              {/* Perforated line */}
+              <View style={styles.perforatedLine} />
+
+              <View style={styles.couponContent}>
+                {/* Left side - Details */}
+                <View style={styles.couponLeft}>
+                  <Text
+                    style={[
+                      styles.couponTitle,
+                      isDarkMode ? styles.textDark : styles.textLight,
+                      !isCouponUnlocked && styles.textLocked,
+                    ]}
+                  >
+                    WILDE MAUS
+                  </Text>
+                  <Text
+                    style={[
+                      styles.couponDiscount,
+                      !isCouponUnlocked && styles.textLocked,
+                    ]}
+                  >
+                    25% OFF
+                  </Text>
+                  <Text
+                    style={[
+                      styles.couponSubtitle,
+                      isDarkMode ? styles.textMutedDark : styles.textMutedLight,
+                      !isCouponUnlocked && styles.textLocked,
+                    ]}
+                  >
+                    Oktoberfest Special
+                  </Text>
+
+                  {!isCouponUnlocked ? (
+                    <View style={styles.countdownContainer}>
+                      <Text
+                        style={[
+                          styles.countdownLabel,
+                          isDarkMode
+                            ? styles.textMutedDark
+                            : styles.textMutedLight,
+                        ]}
+                      >
+                        Unlocks in:
+                      </Text>
+                      <Text style={styles.countdownTime}>
+                        {formatTime(remainingSeconds)}
+                      </Text>
+                    </View>
                   ) : (
-                    <View style={styles.qrPlaceholder}>
-                      <Text style={styles.lockIcon}>🔒</Text>
+                    <View style={styles.unlockedBadge}>
+                      <Text style={styles.unlockedText}>✓ UNLOCKED</Text>
                     </View>
                   )}
+                </View>
+
+                {/* Right side - QR Code */}
+                <View style={styles.couponRight}>
+                  <View
+                    style={[
+                      styles.qrContainer,
+                      !isCouponUnlocked && styles.qrLocked,
+                    ]}
+                  >
+                    {isCouponUnlocked ? (
+                      <QRCode
+                        value="WILDEMAUS25OFF"
+                        size={100}
+                        backgroundColor="transparent"
+                        color={isDarkMode ? "#ffffff" : "#000000"}
+                      />
+                    ) : (
+                      <View style={styles.qrPlaceholder}>
+                        <Text style={styles.lockIcon}>🔒</Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
               </View>
             </View>
           </View>
-        </View>
-      )}
+        )}
 
         <View style={styles.bottomContainer}>
-          {locationError && <Text style={styles.errorText}>{locationError}</Text>}
+          {locationError && (
+            <Text style={styles.errorText}>{locationError}</Text>
+          )}
         </View>
       </ScrollView>
     </View>
