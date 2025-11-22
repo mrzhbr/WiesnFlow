@@ -9,6 +9,7 @@ interface MapboxWebViewProps {
     initialCenter?: [number, number];
     initialZoom?: number;
     colorScheme?: 'light' | 'dark' | null | undefined;
+    onTilePress?: (tile: { tileId: string; row: number; col: number }) => void;
 }
 
 export interface MapboxWebViewRef {
@@ -21,7 +22,8 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
     style,
     initialCenter = [-74.5, 40],
     initialZoom = 9,
-    colorScheme = 'light'
+    colorScheme = 'light',
+    onTilePress
 }, ref) => {
     const webViewRef = useRef<WebView>(null);
     const mapStyle = colorScheme === 'dark'
@@ -55,16 +57,23 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
 
     const handleWebViewMessage = (event: any) => {
         try {
-            const data = event.nativeEvent.data;
-            // console.log('WebView Message:', data);
-            if (data === 'mapLoaded') {
-                // Send initial style when map reports loaded
+            const raw = event.nativeEvent.data;
+            if (raw === 'mapLoaded') {
                 webViewRef.current?.postMessage(JSON.stringify({
                     type: 'setStyle',
                     style: mapStyle
                 }));
-            } else if (data.startsWith('log:')) {
-                console.log('MapboxWebView Log:', data);
+            } else if (typeof raw === 'string' && raw.startsWith('log:')) {
+                console.log('MapboxWebView Log:', raw);
+            } else if (typeof raw === 'string') {
+                try {
+                    const message = JSON.parse(raw);
+                    if (message.type === 'tilePress' && message.tile && onTilePress) {
+                        onTilePress(message.tile);
+                    }
+                } catch (parseError) {
+                    console.error('Error parsing WebView message', parseError);
+                }
             }
         } catch (e) {
             console.error('Error handling WebView message', e);
@@ -302,6 +311,49 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                         'heatmap-opacity': 0.7
                     }
                 });
+
+                // 4. Polygon Fill Layer for interaction (tap targets)
+                map.addLayer({
+                    id: 'oktoberfest-tiles-fill',
+                    type: 'fill',
+                    source: 'oktoberfest-tiles',
+                    paint: {
+                        'fill-color': [
+                            'interpolate',
+                            ['linear'],
+                            ['coalesce', ['feature-state', 'density'], 0],
+                            0, 'rgba(59, 130, 246, 0.3)',   // very low / no data
+                            20, 'rgba(34, 197, 94, 0.6)',   // low
+                            40, 'rgba(234, 179, 8, 0.6)',   // medium
+                            60, 'rgba(249, 115, 22, 0.7)',  // medium-high
+                            80, 'rgba(239, 68, 68, 0.8)',   // high
+                            100, 'rgba(220, 38, 38, 0.9)'   // very high
+                        ],
+                        'fill-opacity': 0
+                    }
+                });
+
+                map.on('click', 'oktoberfest-tiles-fill', function(e) {
+                    try {
+                        const feature = e.features && e.features[0];
+                        if (!feature) {
+                            return;
+                        }
+                        const props = feature.properties || {};
+                        const tileId = props.tileId || feature.id;
+                        const row = props.row;
+                        const col = props.col;
+                        if (window.ReactNativeWebView && tileId !== undefined && tileId !== null) {
+                            window.ReactNativeWebView.postMessage(JSON.stringify({
+                                type: 'tilePress',
+                                tile: { tileId, row, col }
+                            }));
+                        }
+                    } catch (err) {
+                        log('Error handling tile click: ' + err.toString());
+                    }
+                });
+                log('Tiles added');
                 
                 // Fetch initial data
                 fetchTileData();
