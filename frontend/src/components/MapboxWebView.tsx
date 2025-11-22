@@ -9,33 +9,40 @@ import { WebView } from "react-native-webview";
 import oktoberfestTiles from "../data/oktoberfest_tiles.json";
 
 interface MapboxWebViewProps {
-    accessToken: string;
-    style?: any;
-    initialCenter?: [number, number];
-    initialZoom?: number;
-    colorScheme?: 'light' | 'dark' | null | undefined;
-    onTilePress?: (tile: { tileId: string; row: number; col: number }) => void;
-    onMarkerPress?: (markerId: string) => void;
-    tileInteractionsEnabled?: boolean;
+  accessToken: string;
+  style?: any;
+  initialCenter?: [number, number];
+  initialZoom?: number;
+  colorScheme?: "light" | "dark" | null | undefined;
+  onTilePress?: (tile: { tileId: string; row: number; col: number }) => void;
+  onMarkerPress?: (markerId: string) => void;
+  onFriendMarkerPress?: (friendId: string) => void;
+  tileInteractionsEnabled?: boolean;
 }
 
 export interface MapboxWebViewRef {
-    flyTo: (center: [number, number], zoom?: number) => void;
-    updateTileData: (tiles: Record<string, number>) => void;
-    addMarkers: (markers: any[]) => void;
-    highlightMarker: (markerId: string) => void;
+  flyTo: (center: [number, number], zoom?: number) => void;
+  updateTileData: (tiles: Record<string, number>) => void;
+  addMarkers: (markers: any[]) => void;
+  addFriendMarkers: (friends: any[]) => void;
+  highlightMarker: (markerId: string) => void;
 }
 
-export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
-    accessToken,
-    style,
-    initialCenter = [-74.5, 40],
-    initialZoom = 9,
-    colorScheme = 'light',
-    onTilePress,
-    onMarkerPress,
-    tileInteractionsEnabled = true
-}, ref) => {
+export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
+  (
+    {
+      accessToken,
+      style,
+      initialCenter = [-74.5, 40],
+      initialZoom = 9,
+      colorScheme = "light",
+      onTilePress,
+      onMarkerPress,
+      onFriendMarkerPress,
+      tileInteractionsEnabled = true,
+    },
+    ref
+  ) => {
     const webViewRef = useRef<WebView>(null);
     const mapStyle =
       colorScheme === "dark"
@@ -45,31 +52,47 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
       process.env.API_BASE_URL || "https://wiesnflow.onrender.com";
 
     useImperativeHandle(ref, () => ({
-        flyTo: (center, zoom) => {
-            webViewRef.current?.postMessage(JSON.stringify({
-                type: 'flyTo',
-                center,
-                zoom: zoom ?? initialZoom
-            }));
-        },
-        updateTileData: (tiles) => {
-            webViewRef.current?.postMessage(JSON.stringify({
-                type: 'updateTileData',
-                tiles
-            }));
-        },
-        addMarkers: (markers) => {
-            webViewRef.current?.postMessage(JSON.stringify({
-                type: 'addMarkers',
-                markers
-            }));
-        },
-        highlightMarker: (markerId) => {
-            webViewRef.current?.postMessage(JSON.stringify({
-                type: 'highlightMarker',
-                markerId
-            }));
-        }
+      flyTo: (center, zoom) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "flyTo",
+            center,
+            zoom: zoom ?? initialZoom,
+          })
+        );
+      },
+      updateTileData: (tiles) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "updateTileData",
+            tiles,
+          })
+        );
+      },
+      addMarkers: (markers) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "addMarkers",
+            markers,
+          })
+        );
+      },
+      highlightMarker: (markerId) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "highlightMarker",
+            markerId,
+          })
+        );
+      },
+      addFriendMarkers: (friends) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "addFriendMarkers",
+            friends,
+          })
+        );
+      },
     }));
 
     useEffect(() => {
@@ -84,37 +107,51 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
     }, [mapStyle]);
 
     useEffect(() => {
-        webViewRef.current?.postMessage(JSON.stringify({
-            type: 'setTileInteractions',
-            enabled: tileInteractionsEnabled
-        }));
+      webViewRef.current?.postMessage(
+        JSON.stringify({
+          type: "setTileInteractions",
+          enabled: tileInteractionsEnabled,
+        })
+      );
     }, [tileInteractionsEnabled]);
 
     const handleWebViewMessage = (event: any) => {
-        try {
-            const raw = event.nativeEvent.data;
-            if (raw === 'mapLoaded') {
-                webViewRef.current?.postMessage(JSON.stringify({
-                    type: 'setStyle',
-                    style: mapStyle
-                }));
-            } else if (typeof raw === 'string' && raw.startsWith('log:')) {
-                console.log('MapboxWebView Log:', raw);
-            } else if (typeof raw === 'string') {
-                try {
-                    const message = JSON.parse(raw);
-                    if (message.type === 'tilePress' && message.tile && onTilePress) {
-                        onTilePress(message.tile);
-                    } else if (message.type === 'markerPress' && message.markerId && onMarkerPress) {
-                        onMarkerPress(message.markerId);
-                    }
-                } catch (parseError) {
-                    console.error('Error parsing WebView message', parseError);
-                }
+      try {
+        const raw = event.nativeEvent.data;
+        if (raw === "mapLoaded") {
+          webViewRef.current?.postMessage(
+            JSON.stringify({
+              type: "setStyle",
+              style: mapStyle,
+            })
+          );
+        } else if (typeof raw === "string" && raw.startsWith("log:")) {
+          console.log("MapboxWebView Log:", raw);
+        } else if (typeof raw === "string") {
+          try {
+            const message = JSON.parse(raw);
+            if (message.type === "tilePress" && message.tile && onTilePress) {
+              onTilePress(message.tile);
+            } else if (
+              message.type === "markerPress" &&
+              message.markerId &&
+              onMarkerPress
+            ) {
+              onMarkerPress(message.markerId);
+            } else if (
+              message.type === "friendMarkerPress" &&
+              message.friendId &&
+              onFriendMarkerPress
+            ) {
+              onFriendMarkerPress(message.friendId);
             }
-        } catch (e) {
-            console.error('Error handling WebView message', e);
+          } catch (parseError) {
+            console.error("Error parsing WebView message", parseError);
+          }
         }
+      } catch (e) {
+        console.error("Error handling WebView message", e);
+      }
     };
 
     const htmlContent = `
@@ -156,6 +193,37 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
             font-size: 12px;
             color: #6b7280;
             font-weight: 500;
+        }
+        .friend-marker-container {
+            position: relative;
+            width: 32px;
+            height: 32px;
+        }
+        .friend-marker-pulse {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 32px;
+            height: 32px;
+            border-radius: 16px;
+            background-color: rgba(59, 130, 246, 0.4);
+            animation: friendPulse 1.8s ease-out infinite;
+            pointer-events: none;
+        }
+        @keyframes friendPulse {
+            0% {
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 0.8;
+            }
+            100% {
+                transform: translate(-50%, -50%) scale(2);
+                opacity: 0;
+            }
+        }
+        .friend-marker-circle {
+            position: relative;
+            z-index: 1;
         }
     </style>
     </head>
@@ -493,6 +561,72 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
             }
         }
 
+        let friendMarkers = [];
+        
+        function getInitial(name) {
+            if (!name || name.length === 0) return '?';
+            return name.charAt(0).toUpperCase();
+        }
+
+        function updateFriendMarkers(friends) {
+            // Remove all existing friend markers
+            friendMarkers.forEach(marker => marker.remove());
+            friendMarkers = [];
+            
+            if (friends.length === 0) return;
+            
+            // Create HTML markers with initials and pulse animation
+            friends.forEach(f => {
+                const el = document.createElement('div');
+                el.className = 'friend-marker-container';
+                
+                // Get initial
+                const initial = getInitial(f.name);
+                
+                // Create pulse ring
+                const pulseRing = document.createElement('div');
+                pulseRing.className = 'friend-marker-pulse';
+                
+                // Create main circle with initial
+                const circle = document.createElement('div');
+                circle.className = 'friend-marker-circle';
+                circle.textContent = initial;
+                circle.style.backgroundColor = '#3b82f6';
+                circle.style.width = '32px';
+                circle.style.height = '32px';
+                circle.style.borderRadius = '16px';
+                circle.style.border = '3px solid #ffffff';
+                circle.style.display = 'flex';
+                circle.style.alignItems = 'center';
+                circle.style.justifyContent = 'center';
+                circle.style.color = '#ffffff';
+                circle.style.fontSize = '14px';
+                circle.style.fontWeight = '600';
+                circle.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
+                circle.style.cursor = 'pointer';
+                
+                el.appendChild(pulseRing);
+                el.appendChild(circle);
+                
+                // Add click handler
+                el.addEventListener('click', () => {
+                    if (window.ReactNativeWebView) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'friendMarkerPress',
+                            friendId: f.user_id
+                        }));
+                    }
+                });
+                
+                // Create marker
+                const marker = new mapboxgl.Marker(el)
+                    .setLngLat([f.longitude, f.latitude])
+                    .addTo(map);
+                
+                friendMarkers.push(marker);
+            });
+        }
+
         function handleMessage(event) {
             try {
                 log('Received message: ' + JSON.stringify(event.data));
@@ -510,6 +644,9 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
                 } else if (data.type === 'addMarkers') {
                     log('Adding markers: ' + data.markers.length);
                     updateMarkers(data.markers);
+                } else if (data.type === 'addFriendMarkers') {
+                    log('Adding friend markers: ' + data.friends.length);
+                    updateFriendMarkers(data.friends);
                 } else if (data.type === 'highlightMarker') {
                     const id = data.markerId;
                     if (map.getLayer('recommendation-markers-circles')) {
