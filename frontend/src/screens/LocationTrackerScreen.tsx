@@ -9,18 +9,11 @@ import {
 } from "react-native";
 import * as Location from "expo-location";
 
-const generateUuid = (): string => {
-  // Simple UUID v4 generator without external dependencies
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-};
+const generateUuid = (): string => crypto.randomUUID();
 
 const API_BASE_URL = "http://localhost:8000";
 
-export const PlaceholderScreen: React.FC = () => {
+export const LocationTrackerScreen: React.FC = () => {
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === "dark";
 
