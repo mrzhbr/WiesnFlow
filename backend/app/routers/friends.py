@@ -87,70 +87,115 @@ async def remove_friend(friend_id: str, user_id: str):
         "message": "Friend removed successfully"
     }
 
+@router.get("/friends/list")
+async def get_friend_list(user_id: str):
+    supabase = get_supabase_client()
+    # Outgoing: requests sent by user_id (we are sender, friend_id = target)
+    sent_resp = supabase.table("friends").select("user_id,friend_id,accepted").eq("user_id", user_id).execute()
+    # Incoming: requests received by user_id (we are receiver, user_id = sender, friend_id = us)
+    recv_resp = supabase.table("friends").select("user_id,friend_id,accepted").eq("friend_id", user_id).execute()
+
+    friends_list = []
+    # Outgoing: we sent, so friend_id is the friend
+    for entry in sent_resp.data or []:
+        friends_list.append({
+            "friend_id": entry["friend_id"],
+            "accepted": entry.get("accepted", False),
+            "is_sender": True
+        })
+    # Incoming: we received, so friend_id is the other user (the sender)
+    for entry in recv_resp.data or []:
+        friends_list.append({
+            "friend_id": entry["user_id"],
+            "accepted": entry.get("accepted", False),
+            "is_sender": False
+        })
+
+    return {
+        "status": "success",
+        "friends": friends_list
+    }
+
 @router.get("/friends")
 async def get_friend_locations(user_id: str):
     """
-    Get the latest locations of users that the current user_id is befriended with (i.e., accepted friendships).
-    Returns a list of friends with their user_id and latest position (if available).
+    Get all friends (accepted and pending) for the current user_id.
+    Returns a list of friends with their user_id, status (accepted/pending), and latest position (if available).
     """
     supabase = get_supabase_client()
     try:
-        # 1. Find all accepted friends where user_id is user_id or friend_id (bidirectional friendship)
-        # Friendship can be initiated in either direction - so check both ways
-        # First: user_id as user_id, accepted
-        resp1 = supabase.table("friends").select("user_id,friend_id").eq("user_id", user_id).eq("accepted", True).execute()
-        # Second: user_id as friend_id, accepted
-        resp2 = supabase.table("friends").select("user_id,friend_id").eq("friend_id", user_id).eq("accepted", True).execute()
+        # 1. Find all friends where user_id is user_id or friend_id (bidirectional friendship)
+        # Get both accepted and pending friendships
+        # First: user_id as user_id
+        resp1 = supabase.table("friends").select("user_id,friend_id,accepted").eq("user_id", user_id).execute()
+        # Second: user_id as friend_id
+        resp2 = supabase.table("friends").select("user_id,friend_id,accepted").eq("friend_id", user_id).execute()
         
-        # Extract all friend user_ids (the user that is NOT user_id in each row)
-        friend_ids = set()
+        # Build a map of friend_id -> status (accepted/pending)
+        # Also track if the request was sent by us (user_id) or received (friend_id)
+        friend_map = {}
         
         for entry in resp1.data or []:
             # If the user is the user_id, friend is the friend_id
-            friend_ids.add(entry['friend_id'])
+            # Current user sent the request (is user_id) - will show "Pending"
+            fid = entry['friend_id']
+            is_accepted = entry.get('accepted', False)
+            # Always add entry - show all entries from DB
+            friend_map[fid] = {
+                "accepted": is_accepted,
+                "is_sent_by_me": True
+            }
+        
         for entry in resp2.data or []:
             # If the user is the friend_id, friend is the user_id
-            friend_ids.add(entry['user_id'])
+            # Current user received the request (is friend_id) - will show Accept/Decline buttons
+            fid = entry['user_id']
+            is_accepted = entry.get('accepted', False)
+            # Always add entry - if same friend exists, prefer showing as received (friend_id side)
+            # This ensures received requests show accept/decline buttons when pending
+            if fid not in friend_map:
+                friend_map[fid] = {
+                    "accepted": is_accepted,
+                    "is_sent_by_me": False
+                }
+            elif is_accepted or not friend_map[fid]["accepted"]:
+                # Update if: accepted (prefer accepted), or both pending (prefer received side for buttons)
+                friend_map[fid] = {
+                    "accepted": is_accepted,
+                    "is_sent_by_me": False
+                }
         
-        if not friend_ids:
+        if not friend_map:
             return {
                 "status": "success",
                 "friends": []
             }
         
         # 2. For each friend, get their latest position (if available)
-        # Query 'positions' table for rows where uid in friend_ids, get the one with latest last_update
-        placeholders = ",".join([f"'{fid}'" for fid in friend_ids])
-        query = (
-            f"SELECT uid, position, last_update "
-            f"FROM positions "
-            f"WHERE uid IN ({placeholders}) "
-            f"ORDER BY last_update DESC"
-        )
-        # Use Supabase RPC or the python client for this query (the .select().in_... does not support limiting to latest per uid easily)
-        # So, fallback: for each friend, get their latest position
         results = []
-        for fid in friend_ids:
+        for fid, friend_info in friend_map.items():
             pos_resp = supabase.table("positions") \
                 .select("uid,position,last_update") \
                 .eq("uid", fid) \
                 .order("last_update", desc=True) \
                 .limit(1) \
                 .execute()
+            
+            friend_data = {
+                "user_id": fid,
+                "accepted": friend_info["accepted"],
+                "is_sent_by_me": friend_info["is_sent_by_me"],
+                "position": None,
+                "last_update": None
+            }
+            
             # Only one most recent position per friend
             if pos_resp.data and len(pos_resp.data):
                 latest = pos_resp.data[0]
-                results.append({
-                    "user_id": fid,
-                    "position": latest.get("position"),
-                    "last_update": latest.get("last_update")
-                })
-            else:
-                results.append({
-                    "user_id": fid,
-                    "position": None,
-                    "last_update": None
-                })
+                friend_data["position"] = latest.get("position")
+                friend_data["last_update"] = latest.get("last_update")
+            
+            results.append(friend_data)
 
         return {
             "status": "success",
