@@ -139,6 +139,24 @@ export const FriendsScreen: React.FC = () => {
     }
   }, [userUuid]);
 
+  // Poll friends list every 2 seconds
+  useEffect(() => {
+    if (!userUuid) return;
+
+    // Initial fetch
+    fetchFriends();
+
+    // Set up interval to refresh every 2 seconds
+    const intervalId = setInterval(() => {
+      fetchFriends();
+    }, 2000);
+
+    // Cleanup interval on unmount
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [userUuid, fetchFriends]);
+
   const saveFriendName = async (friendId: string, name: string) => {
     try {
       const updatedNames = { ...friendNames, [friendId]: name };
@@ -618,14 +636,7 @@ export const FriendsScreen: React.FC = () => {
             Friends ({friends.length})
           </Text>
 
-          {isLoading && !refreshing ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator
-                size="large"
-                color={isDark ? "#22c55e" : "#16a34a"}
-              />
-            </View>
-          ) : friends.length === 0 ? (
+          {friends.length === 0 ? (
             <View style={[styles.emptyState, cardStyle]}>
               <Text style={[styles.emptyStateText, textMutedStyle]}>
                 No friends yet. Scan a friend's QR code to add them!
