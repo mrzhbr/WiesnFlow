@@ -4,8 +4,7 @@ import { View, ActivityIndicator, StyleSheet } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Crypto from "expo-crypto";
 import { TabNavigator } from "./src/navigation/TabNavigator";
-
-const UUID_STORAGE_KEY = "@wiesnflow:user_uuid";
+import { UUID_STORAGE_KEY } from "./src/config";
 
 export default function App() {
   const [isReady, setIsReady] = useState(false);

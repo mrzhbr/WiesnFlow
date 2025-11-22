@@ -9,31 +9,33 @@ import { WebView } from "react-native-webview";
 import oktoberfestTiles from "../data/oktoberfest_tiles.json";
 
 interface MapboxWebViewProps {
-  accessToken: string;
-  style?: any;
-  initialCenter?: [number, number];
-  initialZoom?: number;
-  colorScheme?: "light" | "dark" | null | undefined;
-  onTilePress?: (tile: { tileId: string; row: number; col: number }) => void;
+    accessToken: string;
+    style?: any;
+    initialCenter?: [number, number];
+    initialZoom?: number;
+    colorScheme?: 'light' | 'dark' | null | undefined;
+    onTilePress?: (tile: { tileId: string; row: number; col: number }) => void;
+    onMarkerPress?: (markerId: string) => void;
+    tileInteractionsEnabled?: boolean;
 }
 
 export interface MapboxWebViewRef {
-  flyTo: (center: [number, number], zoom?: number) => void;
-  updateTileData: (tiles: Record<string, number>) => void;
+    flyTo: (center: [number, number], zoom?: number) => void;
+    updateTileData: (tiles: Record<string, number>) => void;
+    addMarkers: (markers: any[]) => void;
+    highlightMarker: (markerId: string) => void;
 }
 
-export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
-  (
-    {
-      accessToken,
-      style,
-      initialCenter = [-74.5, 40],
-      initialZoom = 9,
-      colorScheme = "light",
-      onTilePress,
-    },
-    ref
-  ) => {
+export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(({
+    accessToken,
+    style,
+    initialCenter = [-74.5, 40],
+    initialZoom = 9,
+    colorScheme = 'light',
+    onTilePress,
+    onMarkerPress,
+    tileInteractionsEnabled = true
+}, ref) => {
     const webViewRef = useRef<WebView>(null);
     const mapStyle =
       colorScheme === "dark"
@@ -43,23 +45,31 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
       process.env.API_BASE_URL || "https://wiesnflow.onrender.com";
 
     useImperativeHandle(ref, () => ({
-      flyTo: (center, zoom) => {
-        webViewRef.current?.postMessage(
-          JSON.stringify({
-            type: "flyTo",
-            center,
-            zoom: zoom ?? initialZoom,
-          })
-        );
-      },
-      updateTileData: (tiles) => {
-        webViewRef.current?.postMessage(
-          JSON.stringify({
-            type: "updateTileData",
-            tiles,
-          })
-        );
-      },
+        flyTo: (center, zoom) => {
+            webViewRef.current?.postMessage(JSON.stringify({
+                type: 'flyTo',
+                center,
+                zoom: zoom ?? initialZoom
+            }));
+        },
+        updateTileData: (tiles) => {
+            webViewRef.current?.postMessage(JSON.stringify({
+                type: 'updateTileData',
+                tiles
+            }));
+        },
+        addMarkers: (markers) => {
+            webViewRef.current?.postMessage(JSON.stringify({
+                type: 'addMarkers',
+                markers
+            }));
+        },
+        highlightMarker: (markerId) => {
+            webViewRef.current?.postMessage(JSON.stringify({
+                type: 'highlightMarker',
+                markerId
+            }));
+        }
     }));
 
     useEffect(() => {
@@ -73,31 +83,38 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
       }
     }, [mapStyle]);
 
+    useEffect(() => {
+        webViewRef.current?.postMessage(JSON.stringify({
+            type: 'setTileInteractions',
+            enabled: tileInteractionsEnabled
+        }));
+    }, [tileInteractionsEnabled]);
+
     const handleWebViewMessage = (event: any) => {
-      try {
-        const raw = event.nativeEvent.data;
-        if (raw === "mapLoaded") {
-          webViewRef.current?.postMessage(
-            JSON.stringify({
-              type: "setStyle",
-              style: mapStyle,
-            })
-          );
-        } else if (typeof raw === "string" && raw.startsWith("log:")) {
-          console.log("MapboxWebView Log:", raw);
-        } else if (typeof raw === "string") {
-          try {
-            const message = JSON.parse(raw);
-            if (message.type === "tilePress" && message.tile && onTilePress) {
-              onTilePress(message.tile);
+        try {
+            const raw = event.nativeEvent.data;
+            if (raw === 'mapLoaded') {
+                webViewRef.current?.postMessage(JSON.stringify({
+                    type: 'setStyle',
+                    style: mapStyle
+                }));
+            } else if (typeof raw === 'string' && raw.startsWith('log:')) {
+                console.log('MapboxWebView Log:', raw);
+            } else if (typeof raw === 'string') {
+                try {
+                    const message = JSON.parse(raw);
+                    if (message.type === 'tilePress' && message.tile && onTilePress) {
+                        onTilePress(message.tile);
+                    } else if (message.type === 'markerPress' && message.markerId && onMarkerPress) {
+                        onMarkerPress(message.markerId);
+                    }
+                } catch (parseError) {
+                    console.error('Error parsing WebView message', parseError);
+                }
             }
-          } catch (parseError) {
-            console.error("Error parsing WebView message", parseError);
-          }
+        } catch (e) {
+            console.error('Error handling WebView message', e);
         }
-      } catch (e) {
-        console.error("Error handling WebView message", e);
-      }
     };
 
     const htmlContent = `
@@ -365,6 +382,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                 });
 
                 map.on('click', 'oktoberfest-tiles-fill', function(e) {
+                    if (!tileInteractionsEnabled) return;
                     try {
                         const feature = e.features && e.features[0];
                         if (!feature) {
@@ -410,6 +428,71 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
         window.addEventListener('message', handleMessage);
         document.addEventListener('message', handleMessage);
 
+        let tileInteractionsEnabled = true;
+
+        function updateMarkers(markers) {
+            const features = markers.map(m => ({
+                type: 'Feature',
+                geometry: {
+                    type: 'Point',
+                    coordinates: [m.long || m.longitude, m.lat || m.latitude] 
+                },
+                properties: {
+                    title: m.tent_name || m.name,
+                    description: 'Score: ' + (m.score ? m.score.toFixed(2) : 'N/A'),
+                    type: m.type
+                }
+            }));
+            
+            const geojson = {
+                type: 'FeatureCollection',
+                features: features
+            };
+            
+            if (map.getSource('recommendation-markers')) {
+                map.getSource('recommendation-markers').setData(geojson);
+            } else {
+                map.addSource('recommendation-markers', {
+                    type: 'geojson',
+                    data: geojson
+                });
+                
+                map.addLayer({
+                    id: 'recommendation-markers-circles',
+                    type: 'circle',
+                    source: 'recommendation-markers',
+                    paint: {
+                        'circle-radius': 8,
+                        'circle-radius-transition': { duration: 300 },
+                        'circle-color': '#ffffff',
+                        'circle-color-transition': { duration: 300 },
+                        'circle-stroke-width': 3,
+                        'circle-stroke-width-transition': { duration: 300 },
+                        'circle-stroke-color': '#16a34a'
+                    }
+                });
+
+                map.on('click', 'recommendation-markers-circles', (e) => {
+                    if (e.features && e.features.length > 0) {
+                         const id = e.features[0].properties.title;
+                         if (window.ReactNativeWebView) {
+                             window.ReactNativeWebView.postMessage(JSON.stringify({
+                                 type: 'markerPress',
+                                 markerId: id
+                             }));
+                         }
+                    }
+                });
+                
+                map.on('mouseenter', 'recommendation-markers-circles', () => {
+                    map.getCanvas().style.cursor = 'pointer';
+                });
+                map.on('mouseleave', 'recommendation-markers-circles', () => {
+                    map.getCanvas().style.cursor = '';
+                });
+            }
+        }
+
         function handleMessage(event) {
             try {
                 log('Received message: ' + JSON.stringify(event.data));
@@ -424,6 +507,28 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                         zoom: data.zoom,
                         essential: true
                     });
+                } else if (data.type === 'addMarkers') {
+                    log('Adding markers: ' + data.markers.length);
+                    updateMarkers(data.markers);
+                } else if (data.type === 'highlightMarker') {
+                    const id = data.markerId;
+                    if (map.getLayer('recommendation-markers-circles')) {
+                         map.setPaintProperty('recommendation-markers-circles', 'circle-color', '#ffffff');
+                         map.setPaintProperty('recommendation-markers-circles', 'circle-radius', [
+                            'case',
+                            ['==', ['get', 'title'], id],
+                            12, 
+                            6
+                        ]);
+                         map.setPaintProperty('recommendation-markers-circles', 'circle-stroke-width', [
+                            'case',
+                            ['==', ['get', 'title'], id],
+                            4, 
+                            2
+                        ]);
+                    }
+                } else if (data.type === 'setTileInteractions') {
+                    tileInteractionsEnabled = data.enabled;
                 } else if (data.type === 'updateTileData') {
                     log('Updating tile data with ' + Object.keys(data.tiles).length + ' entries');
                     const incomingTiles = data.tiles;

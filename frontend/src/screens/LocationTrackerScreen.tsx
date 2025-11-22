@@ -10,10 +10,7 @@ import {
 import * as Location from "expo-location";
 import * as Crypto from "expo-crypto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-
-const API_BASE_URL =
-  process.env.API_BASE_URL || "https://wiesnflow.onrender.com";
-const UUID_STORAGE_KEY = "@wiesnflow:user_uuid";
+import { API_BASE_URL, UUID_STORAGE_KEY } from "../config";
 
 export const LocationTrackerScreen: React.FC = () => {
   const colorScheme = useColorScheme();
@@ -124,6 +121,7 @@ export const LocationTrackerScreen: React.FC = () => {
           }
           setSharingId(uid);
           console.log("[LocationTracker] Loaded UID from storage:", uid);
+          await AsyncStorage.setItem(UUID_STORAGE_KEY, uid);
         } else {
           console.log("[LocationTracker] Using existing UID:", uid);
         }

@@ -17,10 +17,7 @@ import QRCode from "react-native-qrcode-svg";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Crypto from "expo-crypto";
-
-const API_BASE_URL =
-  process.env.API_BASE_URL || "https://wiesnflow.onrender.com";
-const UUID_STORAGE_KEY = "@wiesnflow:user_uuid";
+import { API_BASE_URL, UUID_STORAGE_KEY } from "../config";
 
 type Friend = {
   user_id: string;
