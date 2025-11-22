@@ -18,6 +18,8 @@ const generateUuid = (): string => {
     });
 };
 
+const API_BASE_URL = 'http://localhost:8000';
+
 export const PlaceholderScreen: React.FC = () => {
     const colorScheme = useColorScheme();
     const isDarkMode = colorScheme === 'dark';
@@ -83,21 +85,57 @@ export const PlaceholderScreen: React.FC = () => {
                     return;
                 }
 
+                let uid = sharingId;
+                if (!uid) {
+                    uid = generateUuid();
+                    setSharingId(uid);
+                }
+
                 const current = await Location.getCurrentPositionAsync({});
                 setLocation(current);
+
+                try {
+                    await fetch(`${API_BASE_URL}/position`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            long: current.coords.longitude,
+                            lat: current.coords.latitude,
+                            uid,
+                        }),
+                    });
+                } catch (error) {
+                    console.log('Error posting initial position', error);
+                }
 
                 const intervalId = setInterval(async () => {
                     try {
                         const updated = await Location.getCurrentPositionAsync({});
                         setLocation(updated);
+
+                        if (uid) {
+                            try {
+                                await fetch(`${API_BASE_URL}/position`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        long: updated.coords.longitude,
+                                        lat: updated.coords.latitude,
+                                        uid,
+                                    }),
+                                });
+                            } catch (error) {
+                                console.log('Error posting updated position', error);
+                            }
+                        }
                     } catch (error) {
                         console.log('Error updating location', error);
                     }
-                }, 60000);
+                }, 10000);
 
                 locationIntervalRef.current = intervalId;
 
-                setSharingId(generateUuid());
+                setSharingId(uid);
                 setIsSharing(true);
             } catch (error) {
                 setLocationError('Error while accessing location');
