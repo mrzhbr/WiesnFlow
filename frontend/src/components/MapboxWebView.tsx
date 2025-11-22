@@ -17,6 +17,7 @@ interface MapboxWebViewProps {
   onTilePress?: (tile: { tileId: string; row: number; col: number }) => void;
   onMarkerPress?: (markerId: string) => void;
   onFriendMarkerPress?: (friendId: string) => void;
+  onMapLongPress?: (coords: { longitude: number; latitude: number }) => void;
   tileInteractionsEnabled?: boolean;
 }
 
@@ -44,12 +45,18 @@ export interface MapboxWebViewRef {
   flyTo: (center: [number, number], zoom?: number) => void;
   updateTileData: (tiles: Record<string, number>) => void;
   addMarkers: (markers: any[]) => void;
+  updateMyPosition: (position: { longitude: number; latitude: number; name: string } | null) => void;
+  showAssembleMarkers: (centerPoint: { longitude: number; latitude: number }, finalPoint: { longitude: number; latitude: number }) => void;
+  hideAssembleMarkers: () => void;
+  showRoute: (origin: { longitude: number; latitude: number }, destination: { longitude: number; latitude: number }) => void;
+  hideRoute: () => void;
   updateMarkers: (markers: any[]) => void;
   addFriendMarkers: (friends: any[]) => void;
   highlightMarker: (markerId: string) => void;
   updateRouteIndicators: (indicators: RouteIndicator[]) => void;
   updateUserLocation: (latitude: number | null, longitude: number | null) => void;
 }
+
 
 export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
   (
@@ -62,6 +69,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
       onTilePress,
       onMarkerPress,
       onFriendMarkerPress,
+      onMapLongPress,
       tileInteractionsEnabled = true,
     },
     ref
@@ -121,6 +129,46 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
           JSON.stringify({
             type: "addFriendMarkers",
             friends,
+          })
+        );
+      },
+      updateMyPosition: (position) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "updateMyPosition",
+            position,
+          })
+        );
+      },
+      showAssembleMarkers: (centerPoint, finalPoint) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "showAssembleMarkers",
+            centerPoint,
+            finalPoint,
+          })
+        );
+      },
+      hideAssembleMarkers: () => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "hideAssembleMarkers",
+          })
+        );
+      },
+      showRoute: (origin, destination) => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "showRoute",
+            origin,
+            destination,
+          })
+        );
+      },
+      hideRoute: () => {
+        webViewRef.current?.postMessage(
+          JSON.stringify({
+            type: "hideRoute",
           })
         );
       },
@@ -192,6 +240,12 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
               onFriendMarkerPress
             ) {
               onFriendMarkerPress(message.friendId);
+            } else if (
+              message.type === "mapLongPress" &&
+              message.coords &&
+              onMapLongPress
+            ) {
+              onMapLongPress(message.coords);
             }
           } catch (parseError) {
             console.error("Error parsing WebView message", parseError);
@@ -560,6 +614,75 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                 window.ReactNativeWebView.postMessage('mapLoaded');
             }
         });
+        
+        // Long press detection for position override
+        let longPressTimeout = null;
+        let longPressCoords = null;
+        
+        map.on('mousedown', function(e) {
+            longPressCoords = e.lngLat;
+            longPressTimeout = setTimeout(() => {
+                if (longPressCoords && window.ReactNativeWebView) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'mapLongPress',
+                        coords: {
+                            longitude: longPressCoords.lng,
+                            latitude: longPressCoords.lat
+                        }
+                    }));
+                    log('Long press detected at: ' + longPressCoords.lng + ', ' + longPressCoords.lat);
+                }
+            }, 800); // 800ms for long press
+        });
+        
+        map.on('mouseup', function() {
+            if (longPressTimeout) {
+                clearTimeout(longPressTimeout);
+                longPressTimeout = null;
+            }
+            longPressCoords = null;
+        });
+        
+        map.on('mousemove', function() {
+            if (longPressTimeout) {
+                clearTimeout(longPressTimeout);
+                longPressTimeout = null;
+            }
+        });
+        
+        // Touch events for mobile
+        map.on('touchstart', function(e) {
+            if (e.originalEvent.touches.length === 1) {
+                longPressCoords = e.lngLat;
+                longPressTimeout = setTimeout(() => {
+                    if (longPressCoords && window.ReactNativeWebView) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'mapLongPress',
+                            coords: {
+                                longitude: longPressCoords.lng,
+                                latitude: longPressCoords.lat
+                            }
+                        }));
+                        log('Long press detected at: ' + longPressCoords.lng + ', ' + longPressCoords.lat);
+                    }
+                }, 800);
+            }
+        });
+        
+        map.on('touchend', function() {
+            if (longPressTimeout) {
+                clearTimeout(longPressTimeout);
+                longPressTimeout = null;
+            }
+            longPressCoords = null;
+        });
+        
+        map.on('touchmove', function() {
+            if (longPressTimeout) {
+                clearTimeout(longPressTimeout);
+                longPressTimeout = null;
+            }
+        });
 
         // Re-add tiles whenever style data loads or changes
         map.on('styledata', function() {
@@ -770,118 +893,575 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
             }
         }
 
-        let friendMarkers = [];
-        let userLocationMarker = null;
-        
-        function getInitial(name) {
-            if (!name || name.length === 0) return '?';
-            return name.charAt(0).toUpperCase();
-        }
-
-        function updateUserLocation(latitude, longitude) {
-            // Remove existing user location marker if any
-            if (userLocationMarker) {
-                userLocationMarker.remove();
-                userLocationMarker = null;
-            }
-            
-            // If latitude or longitude is null, just remove the marker
-            if (latitude === null || longitude === null) {
+        function updateFriendMarkers(friends) {
+            if (!friends || friends.length === 0) {
+                // Clear friend markers
+                if (map.getSource('friend-markers')) {
+                    map.getSource('friend-markers').setData({
+                        type: 'FeatureCollection',
+                        features: []
+                    });
+                }
                 return;
             }
             
-            // Create a custom marker element for user location
-            const el = document.createElement('div');
-            el.className = 'friend-marker-container';
-            
-            // Create pulse ring
-            const pulseRing = document.createElement('div');
-            pulseRing.className = 'friend-marker-pulse';
-            pulseRing.style.backgroundColor = 'rgba(34, 197, 94, 0.4)'; // Green pulse
-            
-            // Create main circle with "You" indicator
-            const circle = document.createElement('div');
-            circle.className = 'friend-marker-circle';
-            circle.textContent = '📍';
-            circle.style.backgroundColor = '#22c55e'; // Green
-            circle.style.width = '36px';
-            circle.style.height = '36px';
-            circle.style.borderRadius = '18px';
-            circle.style.border = '3px solid #ffffff';
-            circle.style.display = 'flex';
-            circle.style.alignItems = 'center';
-            circle.style.justifyContent = 'center';
-            circle.style.fontSize = '18px';
-            circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)';
-            
-            el.appendChild(pulseRing);
-            el.appendChild(circle);
-            
-            // Create marker
-            userLocationMarker = new mapboxgl.Marker(el)
-                .setLngLat([longitude, latitude])
-                .addTo(map);
-            
-            log('Updated user location marker at: ' + latitude + ', ' + longitude);
-        }
-
-        function updateFriendMarkers(friends) {
-            // Remove all existing friend markers
-            friendMarkers.forEach(marker => marker.remove());
-            friendMarkers = [];
-            
-            if (friends.length === 0) return;
-            
-            // Create HTML markers with initials and pulse animation
-            friends.forEach(f => {
-                const el = document.createElement('div');
-                el.className = 'friend-marker-container';
+            // Process friends
+            const features = friends.map(f => {
+                const lng = parseFloat(f.longitude);
+                const lat = parseFloat(f.latitude);
                 
-                // Get initial
-                const initial = getInitial(f.name);
+                // Validate coordinates
+                if (isNaN(lng) || isNaN(lat)) {
+                    log('Invalid coordinates for friend: ' + f.user_id);
+                    return null;
+                }
                 
-                // Create pulse ring
-                const pulseRing = document.createElement('div');
-                pulseRing.className = 'friend-marker-pulse';
+                return {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [lng, lat]
+                    },
+                    properties: {
+                        userId: f.user_id,
+                        name: f.name || 'Friend'
+                    }
+                };
+            }).filter(f => f !== null);
+            
+            const geojson = {
+                type: 'FeatureCollection',
+                features: features
+            };
+            
+            // Add or update source and layers
+            if (!map.getSource('friend-markers')) {
+                // Add source
+                map.addSource('friend-markers', {
+                    type: 'geojson',
+                    data: geojson
+                });
                 
-                // Create main circle with initial
-                const circle = document.createElement('div');
-                circle.className = 'friend-marker-circle';
-                circle.textContent = initial;
-                circle.style.backgroundColor = '#3b82f6';
-                circle.style.width = '32px';
-                circle.style.height = '32px';
-                circle.style.borderRadius = '16px';
-                circle.style.border = '3px solid #ffffff';
-                circle.style.display = 'flex';
-                circle.style.alignItems = 'center';
-                circle.style.justifyContent = 'center';
-                circle.style.color = '#ffffff';
-                circle.style.fontSize = '14px';
-                circle.style.fontWeight = '600';
-                circle.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
-                circle.style.cursor = 'pointer';
-                
-                el.appendChild(pulseRing);
-                el.appendChild(circle);
-                
-                // Add click handler
-                el.addEventListener('click', () => {
-                    if (window.ReactNativeWebView) {
-                        window.ReactNativeWebView.postMessage(JSON.stringify({
-                            type: 'friendMarkerPress',
-                            friendId: f.user_id
-                        }));
+                // Add ping animation layer (outer ring)
+                map.addLayer({
+                    id: 'friend-markers-ping',
+                    type: 'circle',
+                    source: 'friend-markers',
+                    paint: {
+                        'circle-radius': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            10, 8,
+                            16, 20
+                        ],
+                        'circle-color': '#3b82f6',
+                        'circle-opacity': 0,
+                        'circle-stroke-width': 0,
+                        'circle-stroke-opacity': 0
                     }
                 });
                 
-                // Create marker
-                const marker = new mapboxgl.Marker(el)
-                    .setLngLat([f.longitude, f.latitude])
-                    .addTo(map);
+                // Add main circle layer
+                map.addLayer({
+                    id: 'friend-markers-circle',
+                    type: 'circle',
+                    source: 'friend-markers',
+                    paint: {
+                        'circle-radius': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            10, 6,
+                            16, 14
+                        ],
+                        'circle-color': '#3b82f6',
+                        'circle-stroke-width': 3,
+                        'circle-stroke-color': '#ffffff',
+                        'circle-opacity': 1
+                    }
+                });
                 
-                friendMarkers.push(marker);
-            });
+                // Add text label layer with first letter of name
+                map.addLayer({
+                    id: 'friend-markers-label',
+                    type: 'symbol',
+                    source: 'friend-markers',
+                    layout: {
+                        'text-field': ['upcase', ['slice', ['get', 'name'], 0, 1]],
+                        'text-size': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            10, 10,
+                            16, 16
+                        ],
+                        'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+                        'text-allow-overlap': true,
+                        'text-ignore-placement': true
+                    },
+                    paint: {
+                        'text-color': '#ffffff'
+                    }
+                });
+                
+                // Add click handler for friend markers (both circle and label)
+                const handleFriendClick = (e) => {
+                    if (e.features && e.features.length > 0) {
+                        const userId = e.features[0].properties.userId;
+                        if (window.ReactNativeWebView) {
+                            window.ReactNativeWebView.postMessage(JSON.stringify({
+                                type: 'friendMarkerPress',
+                                friendId: userId
+                            }));
+                        }
+                    }
+                };
+                
+                map.on('click', 'friend-markers-circle', handleFriendClick);
+                map.on('click', 'friend-markers-label', handleFriendClick);
+                
+                // Change cursor on hover (both circle and label)
+                map.on('mouseenter', 'friend-markers-circle', () => {
+                    map.getCanvas().style.cursor = 'pointer';
+                });
+                map.on('mouseleave', 'friend-markers-circle', () => {
+                    map.getCanvas().style.cursor = '';
+                });
+                map.on('mouseenter', 'friend-markers-label', () => {
+                    map.getCanvas().style.cursor = 'pointer';
+                });
+                map.on('mouseleave', 'friend-markers-label', () => {
+                    map.getCanvas().style.cursor = '';
+                });
+                
+                // Start ping animation
+                animateFriendPing();
+            } else {
+                // Update existing source
+                map.getSource('friend-markers').setData(geojson);
+            }
+        }
+        
+        // Animate the ping effect
+        let pingAnimationId = null;
+        function animateFriendPing() {
+            if (pingAnimationId) {
+                cancelAnimationFrame(pingAnimationId);
+            }
+            
+            let start = null;
+            const duration = 2000; // 2 second cycle
+            
+            function animate(timestamp) {
+                if (!start) start = timestamp;
+                const elapsed = timestamp - start;
+                const progress = (elapsed % duration) / duration;
+                
+                if (map.getLayer('friend-markers-ping')) {
+                    // Scale from 1 to 2.5
+                    const scale = 1 + (progress * 1.5);
+                    // Fade from 0.6 to 0
+                    const opacity = progress < 0.75 ? (0.6 * (1 - progress / 0.75)) : 0;
+                    
+                    map.setPaintProperty('friend-markers-ping', 'circle-radius', [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        10, 8 * scale,
+                        16, 20 * scale
+                    ]);
+                    map.setPaintProperty('friend-markers-ping', 'circle-opacity', opacity);
+                }
+                
+                // Also animate my position ping
+                if (map.getLayer('my-position-ping')) {
+                    const scale = 1 + (progress * 1.5);
+                    const opacity = progress < 0.75 ? (0.6 * (1 - progress / 0.75)) : 0;
+                    
+                    map.setPaintProperty('my-position-ping', 'circle-radius', [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        10, 8 * scale,
+                        16, 20 * scale
+                    ]);
+                    map.setPaintProperty('my-position-ping', 'circle-opacity', opacity);
+                }
+                
+                pingAnimationId = requestAnimationFrame(animate);
+            }
+            
+            pingAnimationId = requestAnimationFrame(animate);
+        }
+        
+        function updateMyPositionMarker(position) {
+            if (!position) {
+                // Clear my position marker
+                if (map.getSource('my-position-marker')) {
+                    map.getSource('my-position-marker').setData({
+                        type: 'FeatureCollection',
+                        features: []
+                    });
+                }
+                return;
+            }
+            
+            const lng = parseFloat(position.longitude);
+            const lat = parseFloat(position.latitude);
+            
+            // Validate coordinates
+            if (isNaN(lng) || isNaN(lat)) {
+                log('Invalid coordinates for my position');
+                return;
+            }
+            
+            const geojson = {
+                type: 'FeatureCollection',
+                features: [{
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [lng, lat]
+                    },
+                    properties: {
+                        name: position.name || 'Me'
+                    }
+                }]
+            };
+            
+            // Add or update source and layers
+            if (!map.getSource('my-position-marker')) {
+                // Add source
+                map.addSource('my-position-marker', {
+                    type: 'geojson',
+                    data: geojson
+                });
+                
+                // Add ping animation layer (outer ring) - GREEN
+                map.addLayer({
+                    id: 'my-position-ping',
+                    type: 'circle',
+                    source: 'my-position-marker',
+                    paint: {
+                        'circle-radius': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            10, 8,
+                            16, 20
+                        ],
+                        'circle-color': '#22c55e',
+                        'circle-opacity': 0,
+                        'circle-stroke-width': 0,
+                        'circle-stroke-opacity': 0
+                    }
+                });
+                
+                // Add main circle layer - GREEN
+                map.addLayer({
+                    id: 'my-position-circle',
+                    type: 'circle',
+                    source: 'my-position-marker',
+                    paint: {
+                        'circle-radius': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            10, 6,
+                            16, 14
+                        ],
+                        'circle-color': '#22c55e',
+                        'circle-stroke-width': 3,
+                        'circle-stroke-color': '#ffffff',
+                        'circle-opacity': 1
+                    }
+                });
+                
+                // Add text label layer with first letter of name
+                map.addLayer({
+                    id: 'my-position-label',
+                    type: 'symbol',
+                    source: 'my-position-marker',
+                    layout: {
+                        'text-field': ['upcase', ['slice', ['get', 'name'], 0, 1]],
+                        'text-size': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            10, 10,
+                            16, 16
+                        ],
+                        'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+                        'text-allow-overlap': true,
+                        'text-ignore-placement': true
+                    },
+                    paint: {
+                        'text-color': '#ffffff'
+                    }
+                });
+                
+                // Start ping animation if not already running
+                if (!pingAnimationId) {
+                    animateFriendPing();
+                }
+            } else {
+                // Update existing source
+                map.getSource('my-position-marker').setData(geojson);
+            }
+        }
+
+        function showAssembleMarkers(centerPoint, finalPoint) {
+            // Add sources and layers for assemble markers
+            // 1. Center point (light red smaller circle)
+            const centerGeojson = {
+                type: 'FeatureCollection',
+                features: [{
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [centerPoint.longitude, centerPoint.latitude]
+                    },
+                    properties: {}
+                }]
+            };
+            
+            // 2. Final point (bigger redder target marker)
+            const finalGeojson = {
+                type: 'FeatureCollection',
+                features: [{
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [finalPoint.longitude, finalPoint.latitude]
+                    },
+                    properties: {}
+                }]
+            };
+            
+            // 3. Arrow line from center to final
+            const arrowGeojson = {
+                type: 'FeatureCollection',
+                features: [{
+                    type: 'Feature',
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: [
+                            [centerPoint.longitude, centerPoint.latitude],
+                            [finalPoint.longitude, finalPoint.latitude]
+                        ]
+                    },
+                    properties: {}
+                }]
+            };
+            
+            // Add or update center point
+            if (!map.getSource('assemble-center')) {
+                map.addSource('assemble-center', {
+                    type: 'geojson',
+                    data: centerGeojson
+                });
+                
+                map.addLayer({
+                    id: 'assemble-center-circle',
+                    type: 'circle',
+                    source: 'assemble-center',
+                    paint: {
+                        'circle-radius': 10,
+                        'circle-color': '#fca5a5',
+                        'circle-opacity': 0.7,
+                        'circle-stroke-width': 2,
+                        'circle-stroke-color': '#ef4444'
+                    }
+                });
+            } else {
+                map.getSource('assemble-center').setData(centerGeojson);
+            }
+            
+            // Add or update final point
+            if (!map.getSource('assemble-final')) {
+                map.addSource('assemble-final', {
+                    type: 'geojson',
+                    data: finalGeojson
+                });
+                
+                // Outer glow
+                map.addLayer({
+                    id: 'assemble-final-glow',
+                    type: 'circle',
+                    source: 'assemble-final',
+                    paint: {
+                        'circle-radius': 20,
+                        'circle-color': '#dc2626',
+                        'circle-opacity': 0.3
+                    }
+                });
+                
+                // Main circle
+                map.addLayer({
+                    id: 'assemble-final-circle',
+                    type: 'circle',
+                    source: 'assemble-final',
+                    paint: {
+                        'circle-radius': 15,
+                        'circle-color': '#dc2626',
+                        'circle-opacity': 0.9,
+                        'circle-stroke-width': 3,
+                        'circle-stroke-color': '#ffffff'
+                    }
+                });
+            } else {
+                map.getSource('assemble-final').setData(finalGeojson);
+            }
+            
+            // Add or update arrow line
+            if (!map.getSource('assemble-arrow')) {
+                map.addSource('assemble-arrow', {
+                    type: 'geojson',
+                    data: arrowGeojson
+                });
+                
+                map.addLayer({
+                    id: 'assemble-arrow-line',
+                    type: 'line',
+                    source: 'assemble-arrow',
+                    paint: {
+                        'line-color': '#dc2626',
+                        'line-width': 3,
+                        'line-opacity': 0.6
+                    }
+                });
+            } else {
+                map.getSource('assemble-arrow').setData(arrowGeojson);
+            }
+        }
+        
+        function hideAssembleMarkers() {
+            // Remove sources and layers
+            if (map.getLayer('assemble-center-circle')) {
+                map.removeLayer('assemble-center-circle');
+            }
+            if (map.getSource('assemble-center')) {
+                map.removeSource('assemble-center');
+            }
+            
+            if (map.getLayer('assemble-final-glow')) {
+                map.removeLayer('assemble-final-glow');
+            }
+            if (map.getLayer('assemble-final-circle')) {
+                map.removeLayer('assemble-final-circle');
+            }
+            if (map.getSource('assemble-final')) {
+                map.removeSource('assemble-final');
+            }
+            
+            if (map.getLayer('assemble-arrow-line')) {
+                map.removeLayer('assemble-arrow-line');
+            }
+            if (map.getSource('assemble-arrow')) {
+                map.removeSource('assemble-arrow');
+            }
+        }
+        
+        async function showRoute(origin, destination) {
+            try {
+                // Call Mapbox Directions API to get walking route
+                const url = 'https://api.mapbox.com/directions/v5/mapbox/walking/' + 
+                    origin.longitude + ',' + origin.latitude + ';' +
+                    destination.longitude + ',' + destination.latitude +
+                    '?geometries=geojson&access_token=' + mapboxgl.accessToken;
+                
+                log('Fetching route from: ' + url);
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    log('Error fetching route: ' + response.status);
+                    return;
+                }
+                
+                const data = await response.json();
+                log('Route data received: ' + JSON.stringify(data));
+                
+                if (!data.routes || data.routes.length === 0) {
+                    log('No routes found');
+                    return;
+                }
+                
+                const route = data.routes[0];
+                const routeGeometry = route.geometry;
+                
+                // Create GeoJSON for the route
+                const routeGeojson = {
+                    type: 'FeatureCollection',
+                    features: [{
+                        type: 'Feature',
+                        geometry: routeGeometry,
+                        properties: {}
+                    }]
+                };
+                
+                // Add or update route source
+                if (!map.getSource('navigation-route')) {
+                    map.addSource('navigation-route', {
+                        type: 'geojson',
+                        data: routeGeojson
+                    });
+                    
+                    // Add route line layer (background/casing)
+                    map.addLayer({
+                        id: 'navigation-route-casing',
+                        type: 'line',
+                        source: 'navigation-route',
+                        paint: {
+                            'line-color': '#1e3a8a',
+                            'line-width': 10,
+                            'line-opacity': 0.4
+                        }
+                    });
+                    
+                    // Add route line layer (main line)
+                    map.addLayer({
+                        id: 'navigation-route-line',
+                        type: 'line',
+                        source: 'navigation-route',
+                        paint: {
+                            'line-color': '#3b82f6',
+                            'line-width': 6,
+                            'line-opacity': 0.9
+                        }
+                    });
+                } else {
+                    map.getSource('navigation-route').setData(routeGeojson);
+                }
+                
+                // Fit the map to show the entire route
+                const coordinates = routeGeometry.coordinates;
+                const bounds = coordinates.reduce(function(bounds, coord) {
+                    return bounds.extend(coord);
+                }, new mapboxgl.LngLatBounds(coordinates[0], coordinates[0]));
+                
+                map.fitBounds(bounds, {
+                    padding: { top: 100, bottom: 100, left: 50, right: 50 },
+                    duration: 1000
+                });
+                
+                log('Route displayed successfully');
+            } catch (error) {
+                log('Error showing route: ' + error.toString());
+            }
+        }
+        
+        function hideRoute() {
+            // Remove route layers and source
+            if (map.getLayer('navigation-route-line')) {
+                map.removeLayer('navigation-route-line');
+            }
+            if (map.getLayer('navigation-route-casing')) {
+                map.removeLayer('navigation-route-casing');
+            }
+            if (map.getSource('navigation-route')) {
+                map.removeSource('navigation-route');
+            }
         }
 
         function handleMessage(event) {
@@ -898,31 +1478,6 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                         zoom: data.zoom,
                         essential: true
                     });
-                } else if (data.type === 'addMarkers') {
-                    log('Adding markers: ' + data.markers.length);
-                    addMarkers(data.markers);
-                } else if (data.type === 'addFriendMarkers') {
-                    log('Adding friend markers: ' + data.friends.length);
-                    updateFriendMarkers(data.friends);
-                } else if (data.type === 'highlightMarker') {
-                    const id = data.markerId;
-                    if (map.getLayer('recommendation-markers-circles')) {
-                         map.setPaintProperty('recommendation-markers-circles', 'circle-color', '#ffffff');
-                         map.setPaintProperty('recommendation-markers-circles', 'circle-radius', [
-                            'case',
-                            ['==', ['get', 'title'], id],
-                            12, 
-                            6
-                        ]);
-                         map.setPaintProperty('recommendation-markers-circles', 'circle-stroke-width', [
-                            'case',
-                            ['==', ['get', 'title'], id],
-                            4, 
-                            2
-                        ]);
-                    }
-                } else if (data.type === 'setTileInteractions') {
-                    tileInteractionsEnabled = data.enabled;
                 } else if (data.type === 'updateTileData') {
                     log('Updating tile data with ' + Object.keys(data.tiles).length + ' entries');
                     const incomingTiles = data.tiles;
