@@ -176,7 +176,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
         webViewRef.current?.postMessage(
           JSON.stringify({
             type: "updateRouteIndicators",
-            routeIndicators: indicators,
+            indicators,
           })
         );
       },
@@ -1478,6 +1478,46 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                         zoom: data.zoom,
                         essential: true
                     });
+                } else if (data.type === 'addMarkers') {
+                    log('Adding markers: ' + data.markers.length);
+                    addMarkers(data.markers);
+                } else if (data.type === 'addFriendMarkers') {
+                    log('Adding friend markers: ' + data.friends.length);
+                    updateFriendMarkers(data.friends);
+                } else if (data.type === 'updateMyPosition') {
+                    log('Updating my position: ' + JSON.stringify(data.position));
+                    updateMyPositionMarker(data.position);
+                } else if (data.type === 'highlightMarker') {
+                    const id = data.markerId;
+                    if (map.getLayer('recommendation-markers-circles')) {
+                         map.setPaintProperty('recommendation-markers-circles', 'circle-color', '#ffffff');
+                         map.setPaintProperty('recommendation-markers-circles', 'circle-radius', [
+                            'case',
+                            ['==', ['get', 'title'], id],
+                            12, 
+                            6
+                        ]);
+                         map.setPaintProperty('recommendation-markers-circles', 'circle-stroke-width', [
+                            'case',
+                            ['==', ['get', 'title'], id],
+                            4, 
+                            2
+                        ]);
+                    }
+                } else if (data.type === 'setTileInteractions') {
+                    tileInteractionsEnabled = data.enabled;
+                } else if (data.type === 'showAssembleMarkers') {
+                    log('Showing assemble markers');
+                    showAssembleMarkers(data.centerPoint, data.finalPoint);
+                } else if (data.type === 'hideAssembleMarkers') {
+                    log('Hiding assemble markers');
+                    hideAssembleMarkers();
+                } else if (data.type === 'showRoute') {
+                    log('Showing route');
+                    showRoute(data.origin, data.destination);
+                } else if (data.type === 'hideRoute') {
+                    log('Hiding route');
+                    hideRoute();
                 } else if (data.type === 'updateTileData') {
                     log('Updating tile data with ' + Object.keys(data.tiles).length + ' entries');
                     const incomingTiles = data.tiles;
@@ -1508,8 +1548,8 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                     log('Updating markers with ' + (data.markers ? data.markers.length : 0) + ' items');
                     addMarkers(data.markers);
                 } else if (data.type === 'updateRouteIndicators') {
-                    log('Updating route indicators with ' + (data.routeIndicators ? data.routeIndicators.length : 0) + ' items');
-                    addRouteIndicators(data.routeIndicators);
+                    log('Updating route indicators with ' + (data.indicators ? data.indicators.length : 0) + ' items');
+                    addRouteIndicators(data.indicators);
                 } else if (data.type === 'updateUserLocation') {
                     log('Updating user location: ' + data.latitude + ', ' + data.longitude);
                     updateUserLocation(data.latitude, data.longitude);

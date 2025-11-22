@@ -1,13 +1,13 @@
 import React, { useRef, useCallback, useState, useMemo } from 'react';
-import { View, StyleSheet, useColorScheme } from 'react-native';
+import { View, StyleSheet, useColorScheme, Text } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { MapboxWebView, MapboxWebViewRef, Marker, RouteIndicator } from '../components/MapboxWebView';
 import oktoberfestTiles from '../data/oktoberfest_tiles.json';
 import wiesnLocations from '../data/wiesn_locations.json';
+import { API_BASE_URL } from '../config';
 
 const INITIAL_CENTER: [number, number] = [11.5492349, 48.1313557];
 const INITIAL_ZOOM = 14;
-const API_BASE_URL = "http://localhost:8000";
 
 export const SecurityScreen = () => {
     const colorScheme = useColorScheme();
@@ -310,6 +310,20 @@ export const SecurityScreen = () => {
                 initialZoom={INITIAL_ZOOM}
                 colorScheme={colorScheme}
             />
+            
+            {/* Legend */}
+            <View style={[
+                styles.legend,
+                colorScheme === 'dark' ? styles.legendDark : styles.legendLight
+            ]}>
+                <View style={styles.legendLine} />
+                <Text style={[
+                    styles.legendText,
+                    colorScheme === 'dark' ? styles.textLight : styles.textDark
+                ]}>
+                    Empfohlene Routen
+                </Text>
+            </View>
         </View>
     );
 };
@@ -320,5 +334,43 @@ const styles = StyleSheet.create({
     },
     map: {
         flex: 1,
+    },
+    legend: {
+        position: 'absolute',
+        top: 100,
+        right: 10,
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderRadius: 8,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+        elevation: 5,
+    },
+    legendLight: {
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    },
+    legendDark: {
+        backgroundColor: 'rgba(31, 41, 55, 0.95)',
+    },
+    legendLine: {
+        width: 28,
+        height: 4,
+        borderRadius: 2,
+        marginRight: 8,
+        backgroundColor: '#22c55e',
+    },
+    legendText: {
+        fontSize: 12,
+        fontWeight: '600',
+    },
+    textLight: {
+        color: '#e5e7eb',
+    },
+    textDark: {
+        color: '#1f2937',
     },
 });
