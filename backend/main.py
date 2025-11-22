@@ -7,7 +7,7 @@ from fastapi_cache import caches, close_caches
 from fastapi_cache.backends.redis import CACHE_KEY, RedisCacheBackend
 
 from app.database import init_supabase, get_supabase_client
-from app.routers import health, position, friends
+from app.routers import health, position, friends, recommendations
 from app.cache_backend import InMemoryCacheBackend
 from datetime import datetime, timezone
 import asyncio
@@ -93,6 +93,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="", tags=["health"])
 app.include_router(position.router, prefix="", tags=["position"])
 app.include_router(friends.router, prefix="", tags=["friends"])
+app.include_router(recommendations.router, prefix="", tags=["recommendations"])
 
 
 @app.get("/")

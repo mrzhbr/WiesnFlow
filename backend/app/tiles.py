@@ -159,15 +159,44 @@ def assign_positions_to_tiles(positions: List[Dict]) -> Dict[str, int]:
 
 
 # Oktoberfest tent POIs (Points of Interest)
-# Format: (tent_name, longitude, latitude)
+# Format: (poi_name, longitude, latitude)
+# Note: All POIs are treated the same way in the database (as "tents")
+# Types are stored locally in OKTOBERFEST_POI_TYPES for local use only
 OKTOBERFEST_TENTS: List[Tuple[str, float, float]] = [
+    # Tents
     ("schottenhammel", 11.548353, 48.132072),
     ("loewenbraeu", 11.549452, 48.130993),
     ("hacker_festzelt", 11.548750, 48.132990),
     ("paulaner", 11.547958, 48.131006),
     ("kaefer", 11.547610, 48.130425),
     ("augustiner", 11.549934, 48.132894),
+    # Roller Coasters
+    ("wilde_maus", 11.551921, 48.132814),
+    ("teufelsrad", 11.551595, 48.132216),
+    ("hexenschaukel", 11.551471, 48.132642),
+    # Food
+    ("kalbsbratierei_heimer", 11.550964, 48.133435),
+    ("cafe_kaiserschmarn_rischart", 11.550630, 48.130582),
 ]
+
+# POI types for local use only (not stored in database)
+# Maps poi_name -> type
+OKTOBERFEST_POI_TYPES: Dict[str, str] = {
+    # Tents
+    "schottenhammel": "tent",
+    "loewenbraeu": "tent",
+    "hacker_festzelt": "tent",
+    "paulaner": "tent",
+    "kaefer": "tent",
+    "augustiner": "tent",
+    # Roller Coasters
+    "wilde_maus": "roller_coaster",
+    "teufelsrad": "roller_coaster",
+    "hexenschaukel": "roller_coaster",
+    # Food
+    "kalbsbratierei_heimer": "food",
+    "cafe_kaiserschmarn_rischart": "food",
+}
 
 # Radius for tent counting in meters
 TENT_RADIUS_METERS = 80
