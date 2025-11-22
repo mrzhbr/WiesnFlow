@@ -237,7 +237,7 @@ async def _calculate_and_cache_map_data(minute_key: str, start_time: Optional[da
 @router.get("/map")
 async def get_map(
     background_tasks: BackgroundTasks,
-    bypass_cache: bool = True,
+    bypass_cache: bool = False,
     cache = Depends(get_cache),
     duration: int = 1,
     start_time: Optional[datetime] = None,
@@ -247,21 +247,23 @@ async def get_map(
     Assign each position to its corresponding 50x50m tile and return a map of tile_id -> count.
     Also count positions within 50m radius of each Oktoberfest tent.
     
-    Uses minute-based caching:
-    - If cache exists for current minute, return it immediately
+    Uses minute-based caching ONLY for default parameters (start_time=None, duration=1):
+    - If cache exists for current minute with default params, return it immediately
     - If not, return the previous minute's cache (if available) and start async calculation for new minute
+    - For custom parameters (non-default start_time or duration), always calculate fresh data
     
     Args:
         bypass_cache: If True, always calculate fresh data and skip cache lookup
+        duration: Duration in hours for the time window (defaults to 1)
+        start_time: The end time for the query (defaults to now). Entries must be older than this.
     
     Returns:
         Dictionary with:
         - "tiles": Dictionary mapping tile_id (e.g., "tile_5_7") to count of positions in that tile
         - "tents": Dictionary mapping tent name to count of positions within 50m radius
     """
-    # Get current time and create minute-based cache key
-    current_time = datetime.now(timezone.utc)
-    current_minute_key = f"map_{current_time.strftime('%Y-%m-%d_%H:%M')}"
+    # Check if this is a default parameter request (only these use cache)
+    is_default_params = (start_time is None and duration == 1)
     
     # Helper function to safely get from cache with fallback
     async def safe_cache_get(key: str):
@@ -280,12 +282,20 @@ async def get_map(
             print(f"Cache set error ({e}), using fallback")
             await _fallback_cache.set(key, value, expire=expire)
     
-    # If bypass_cache is True, always calculate fresh data
-    if bypass_cache:
+    # For non-default parameters or bypass_cache, always calculate fresh data
+    if bypass_cache or not is_default_params:
         map_data = _calculate_map_data(start_time=start_time, duration=duration)
-        # Still cache the result for future requests
-        await safe_cache_set(current_minute_key, map_data, expire=3600)
+        # Only cache if it's default params (for future default requests)
+        if is_default_params:
+            current_time = datetime.now(timezone.utc)
+            current_minute_key = f"map_{current_time.strftime('%Y-%m-%d_%H:%M')}"
+            await safe_cache_set(current_minute_key, map_data, expire=3600)
         return map_data
+    
+    # Default parameters - use cache logic
+    # Get current time and create minute-based cache key
+    current_time = datetime.now(timezone.utc)
+    current_minute_key = f"map_{current_time.strftime('%Y-%m-%d_%H:%M')}"
     
     # Check if cache exists for current minute
     current_cached = await safe_cache_get(current_minute_key)
@@ -297,15 +307,15 @@ async def get_map(
     previous_minute_key = f"map_{previous_minute.strftime('%Y-%m-%d_%H:%M')}"
     previous_cached = await safe_cache_get(previous_minute_key)
     
-    # Start background task to calculate and cache the new minute
-    background_tasks.add_task(_calculate_and_cache_map_data, current_minute_key, start_time, duration)
+    # Start background task to calculate and cache the new minute (with default params)
+    background_tasks.add_task(_calculate_and_cache_map_data, current_minute_key, None, 1)
     
     # Return previous cached value if available, otherwise calculate synchronously
     if previous_cached is not None:
         return previous_cached
     
     # No cache available - calculate synchronously (fallback for first request)
-    map_data = _calculate_map_data(start_time=start_time, duration=duration)
+    map_data = _calculate_map_data(start_time=None, duration=1)
     await safe_cache_set(current_minute_key, map_data, expire=3600)
     return map_data
 
