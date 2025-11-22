@@ -18,7 +18,11 @@ import QRCode from "react-native-qrcode-svg";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Crypto from "expo-crypto";
-import { API_BASE_URL, UUID_STORAGE_KEY } from "../config";
+import {
+  API_BASE_URL,
+  UUID_STORAGE_KEY,
+  FRIEND_NAMES_STORAGE_KEY,
+} from "../config";
 
 type Friend = {
   friend_id: string;
