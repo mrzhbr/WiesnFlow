@@ -6,7 +6,9 @@ import {
   Text,
   useColorScheme,
   View,
+  ScrollView,
 } from "react-native";
+import QRCode from "react-native-qrcode-svg";
 import * as Location from "expo-location";
 import * as Crypto from "expo-crypto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -64,6 +66,10 @@ export const LocationTrackerScreen: React.FC = () => {
   const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
     null
   );
+  const [trackingStartTime, setTrackingStartTime] = useState<number | null>(null);
+  const [remainingSeconds, setRemainingSeconds] = useState<number>(600); // 10 minutes = 600 seconds
+  const [isCouponUnlocked, setIsCouponUnlocked] = useState<boolean>(false);
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const pulse = useRef(new Animated.Value(0)).current;
 
@@ -105,8 +111,42 @@ export const LocationTrackerScreen: React.FC = () => {
         clearInterval(locationIntervalRef.current);
         locationIntervalRef.current = null;
       }
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
     };
   }, []);
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (isSharing && trackingStartTime && !isCouponUnlocked) {
+      // Start countdown
+      countdownIntervalRef.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - trackingStartTime) / 1000);
+        const remaining = Math.max(0, 600 - elapsed);
+        setRemainingSeconds(remaining);
+
+        if (remaining === 0) {
+          setIsCouponUnlocked(true);
+          if (countdownIntervalRef.current) {
+            clearInterval(countdownIntervalRef.current);
+            countdownIntervalRef.current = null;
+          }
+        }
+      }, 1000);
+    } else if (!isSharing && countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
+  }, [isSharing, trackingStartTime, isCouponUnlocked]);
 
   // Load UUID on mount (should always exist since App.tsx initializes it)
   useEffect(() => {
@@ -303,6 +343,8 @@ export const LocationTrackerScreen: React.FC = () => {
 
         setSharingId(uid);
         setIsSharing(true);
+        setTrackingStartTime(Date.now());
+        setRemainingSeconds(600);
         console.log("[LocationTracker] Location sharing started successfully!");
       } catch (error) {
         const errorMsg = "Error while accessing location";
@@ -319,6 +361,8 @@ export const LocationTrackerScreen: React.FC = () => {
 
       setIsSharing(false);
       setLocation(null);
+      setTrackingStartTime(null);
+      setRemainingSeconds(600);
       console.log("[LocationTracker] Location sharing stopped");
     }
   };
@@ -337,6 +381,12 @@ export const LocationTrackerScreen: React.FC = () => {
     ? "Stop sharing location"
     : "Start sharing location";
 
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   return (
     <View
       style={[
@@ -344,7 +394,7 @@ export const LocationTrackerScreen: React.FC = () => {
         isDarkMode ? styles.screenDark : styles.screenLight,
       ]}
     >
-      <View style={styles.centerContent}>
+      <View style={styles.buttonContainer}>
         <View style={styles.buttonWrapper}>
           <Animated.View
             pointerEvents="none"
@@ -376,9 +426,97 @@ export const LocationTrackerScreen: React.FC = () => {
         </View>
       </View>
 
-      <View style={styles.bottomContainer}>
-        {locationError && <Text style={styles.errorText}>{locationError}</Text>}
-      </View>
+      <ScrollView
+        style={styles.scrollViewContent}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* Coupon Section */}
+        {isSharing && (
+        <View style={styles.couponContainer}>
+          <View style={[
+            styles.couponCard,
+            isDarkMode ? styles.couponCardDark : styles.couponCardLight,
+            !isCouponUnlocked && styles.couponLocked
+          ]}>
+            {/* Ticket notches */}
+            <View style={styles.notchLeft} />
+            <View style={styles.notchRight} />
+            
+            {/* Perforated line */}
+            <View style={styles.perforatedLine} />
+            
+            <View style={styles.couponContent}>
+              {/* Left side - Details */}
+              <View style={styles.couponLeft}>
+                <Text style={[
+                  styles.couponTitle,
+                  isDarkMode ? styles.textDark : styles.textLight,
+                  !isCouponUnlocked && styles.textLocked
+                ]}>
+                  WILDE MAUS
+                </Text>
+                <Text style={[
+                  styles.couponDiscount,
+                  !isCouponUnlocked && styles.textLocked
+                ]}>
+                  25% OFF
+                </Text>
+                <Text style={[
+                  styles.couponSubtitle,
+                  isDarkMode ? styles.textMutedDark : styles.textMutedLight,
+                  !isCouponUnlocked && styles.textLocked
+                ]}>
+                  Oktoberfest Special
+                </Text>
+                
+                {!isCouponUnlocked ? (
+                  <View style={styles.countdownContainer}>
+                    <Text style={[
+                      styles.countdownLabel,
+                      isDarkMode ? styles.textMutedDark : styles.textMutedLight
+                    ]}>
+                      Unlocks in:
+                    </Text>
+                    <Text style={styles.countdownTime}>
+                      {formatTime(remainingSeconds)}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.unlockedBadge}>
+                    <Text style={styles.unlockedText}>✓ UNLOCKED</Text>
+                  </View>
+                )}
+              </View>
+              
+              {/* Right side - QR Code */}
+              <View style={styles.couponRight}>
+                <View style={[
+                  styles.qrContainer,
+                  !isCouponUnlocked && styles.qrLocked
+                ]}>
+                  {isCouponUnlocked ? (
+                    <QRCode
+                      value="WILDEMAUS25OFF"
+                      size={100}
+                      backgroundColor="transparent"
+                      color={isDarkMode ? "#ffffff" : "#000000"}
+                    />
+                  ) : (
+                    <View style={styles.qrPlaceholder}>
+                      <Text style={styles.lockIcon}>🔒</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+      )}
+
+        <View style={styles.bottomContainer}>
+          {locationError && <Text style={styles.errorText}>{locationError}</Text>}
+        </View>
+      </ScrollView>
     </View>
   );
 };
@@ -386,20 +524,29 @@ export const LocationTrackerScreen: React.FC = () => {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+  },
+  buttonContainer: {
+    position: "absolute",
+    top: 200,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 10,
+  },
+  scrollViewContent: {
+    flex: 1,
+    marginTop: 350,
+  },
+  scrollContent: {
     paddingHorizontal: 24,
-    paddingVertical: 32,
-    justifyContent: "space-between",
+    paddingTop: 20,
+    paddingBottom: 32,
   },
   screenLight: {
     backgroundColor: "#f3f4f6",
   },
   screenDark: {
     backgroundColor: "#1a1a1a",
-  },
-  centerContent: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
   },
   buttonWrapper: {
     justifyContent: "center",
@@ -492,5 +639,147 @@ const styles = StyleSheet.create({
   },
   textPrimaryDark: {
     color: "#e5e7eb",
+  },
+  couponContainer: {
+    marginTop: 150,
+    marginBottom: 30,
+    alignItems: "center",
+  },
+  couponCard: {
+    width: "100%",
+    maxWidth: 380,
+    borderRadius: 12,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+    position: "relative",
+    overflow: "hidden",
+  },
+  couponCardLight: {
+    backgroundColor: "#ffffff",
+  },
+  couponCardDark: {
+    backgroundColor: "#2a2a2a",
+  },
+  couponLocked: {
+    opacity: 0.6,
+  },
+  notchLeft: {
+    position: "absolute",
+    left: -10,
+    top: "50%",
+    marginTop: -10,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#f3f4f6",
+  },
+  notchRight: {
+    position: "absolute",
+    right: -10,
+    top: "50%",
+    marginTop: -10,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#f3f4f6",
+  },
+  perforatedLine: {
+    position: "absolute",
+    right: 130,
+    top: 0,
+    bottom: 0,
+    width: 2,
+    borderLeftWidth: 2,
+    borderLeftColor: "#d1d5db",
+    borderStyle: "dashed",
+  },
+  couponContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  couponLeft: {
+    flex: 1,
+    paddingRight: 20,
+  },
+  couponRight: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: 120,
+  },
+  couponTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  couponDiscount: {
+    fontSize: 32,
+    fontWeight: "900",
+    color: "#dc2626",
+    marginBottom: 4,
+  },
+  couponSubtitle: {
+    fontSize: 13,
+    marginBottom: 16,
+  },
+  textLight: {
+    color: "#111827",
+  },
+  textDark: {
+    color: "#f9fafb",
+  },
+  textLocked: {
+    opacity: 0.5,
+  },
+  countdownContainer: {
+    marginTop: 8,
+  },
+  countdownLabel: {
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  countdownTime: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#f59e0b",
+    fontVariant: ["tabular-nums"],
+  },
+  unlockedBadge: {
+    backgroundColor: "#16a34a",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    alignSelf: "flex-start",
+    marginTop: 8,
+  },
+  unlockedText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  qrContainer: {
+    padding: 10,
+    backgroundColor: "#ffffff",
+    borderRadius: 8,
+  },
+  qrLocked: {
+    opacity: 0.3,
+  },
+  qrPlaceholder: {
+    width: 100,
+    height: 100,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f3f4f6",
+    borderRadius: 8,
+  },
+  lockIcon: {
+    fontSize: 40,
   },
 });
