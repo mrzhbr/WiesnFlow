@@ -26,11 +26,19 @@ export interface MapboxWebViewRef {
   updateTileData: (tiles: Record<string, number>) => void;
   addMarkers: (markers: any[]) => void;
   addFriendMarkers: (friends: any[]) => void;
-  updateMyPosition: (position: { longitude: number; latitude: number; name: string } | null) => void;
+  updateMyPosition: (
+    position: { longitude: number; latitude: number; name: string } | null
+  ) => void;
   highlightMarker: (markerId: string) => void;
-  showAssembleMarkers: (centerPoint: { longitude: number; latitude: number }, finalPoint: { longitude: number; latitude: number }) => void;
+  showAssembleMarkers: (
+    centerPoint: { longitude: number; latitude: number },
+    finalPoint: { longitude: number; latitude: number }
+  ) => void;
   hideAssembleMarkers: () => void;
-  showRoute: (origin: { longitude: number; latitude: number }, destination: { longitude: number; latitude: number }) => void;
+  showRoute: (
+    origin: { longitude: number; latitude: number },
+    destination: { longitude: number; latitude: number }
+  ) => void;
   hideRoute: () => void;
 }
 
@@ -407,46 +415,45 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                     id: 'oktoberfest-heatmap',
                     type: 'heatmap',
                     source: 'oktoberfest-points',
-                    maxzoom: 16,
+                    maxzoom: 18,
                     paint: {
-                        // Increase the heatmap weight based on density state
+                        // Weight based on normalized density (0-1 where 1 is max)
+                        // The density state will be normalized before setting
                         'heatmap-weight': [
                             'interpolate',
                             ['linear'],
                             ['coalesce', ['feature-state', 'density'], 0],
                             0, 0,
-                            1, 0.2,
-                            10, 1
+                            1, 1
                         ],
-                        // Heatmap intensity multiplier
-                        'heatmap-intensity': [
-                            'interpolate',
-                            ['linear'],
-                            ['zoom'],
-                            12, 1,
-                            16, 3
-                        ],
-                        // Color ramp from transparent to green to yellow to red
+                        // Higher intensity for more aggressive colors
+                        'heatmap-intensity': 1.8,
+                        // More aggressive color ramp - colors kick in earlier and are more vibrant
                         'heatmap-color': [
                             'interpolate',
                             ['linear'],
                             ['heatmap-density'],
                             0, 'rgba(33,102,172,0)',
-                            0.2, 'rgb(103,169,207)',
-                            0.4, '#22c55e', // Green
-                            0.6, '#eab308', // Yellow
-                            0.8, '#ef4444', // Red
-                            1, '#b91c1c'   // Dark Red
+                            0.1, '#3b82f6',  // Blue kicks in early
+                            0.25, '#22c55e', // Green
+                            0.45, '#eab308', // Yellow
+                            0.65, '#f97316', // Orange
+                            0.8, '#ef4444',  // Red
+                            1, '#dc2626'     // Dark Red
                         ],
-                        // Adjust radius by zoom level
+                        // Much smaller fixed radius (~50-60m)
                         'heatmap-radius': [
                             'interpolate',
-                            ['linear'],
+                            ['exponential', 2],
                             ['zoom'],
-                            12, 20,
-                            16, 50 
+                            0, 0.24,
+                            10, 2.4,
+                            12, 9.6,
+                            14, 38.4,
+                            16, 153.6,
+                            18, 614.4
                         ],
-                        'heatmap-opacity': 0.7
+                        'heatmap-opacity': 0.8
                     }
                 });
 
@@ -1281,6 +1288,17 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                     log('Updating tile data with ' + Object.keys(data.tiles).length + ' entries');
                     const incomingTiles = data.tiles;
                     
+                    // Find max count for normalization
+                    let maxCount = 0;
+                    Object.values(incomingTiles).forEach(count => {
+                        if (count > maxCount) maxCount = count;
+                    });
+                    
+                    // Use minimum of 50 as the normalizer (so colors don't get too intense for small crowds)
+                    const normalizer = Math.max(50, maxCount);
+                    
+                    log('Max count: ' + maxCount + ', Normalizer: ' + normalizer);
+                    
                     // Iterate over all features in the source to ensure we update everything (including resetting to 0)
                     if (tilesGeoJSON && tilesGeoJSON.features) {
                          log('Processing ' + tilesGeoJSON.features.length + ' features');
@@ -1289,8 +1307,12 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                              const id = feature.properties.tileId;
                              if (id) {
                                  const count = incomingTiles[id] || 0;
+                                 // Normalize to 0-1 range, using minimum normalizer of 50
+                                 // This prevents tiles with <50 people from getting max color intensity
+                                 const normalizedDensity = normalizer > 0 ? count / normalizer : 0;
                                  
                                  // Update state for BOTH polygon source (for interactions) and point source (for heatmap)
+                                 // Use normalized density for heatmap
                                  map.setFeatureState(
                                      { source: 'oktoberfest-tiles', id: id },
                                      { density: count }
@@ -1298,7 +1320,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                                  
                                  map.setFeatureState(
                                      { source: 'oktoberfest-points', id: id },
-                                     { density: count }
+                                     { density: normalizedDensity }
                                  );
                              }
                          });
