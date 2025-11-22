@@ -18,7 +18,7 @@ const generateUuid = (): string => {
     });
 };
 
-export const PlaceholderScreen: React.FC = () => {
+export const LocationTrackerScreen: React.FC = () => {
     const colorScheme = useColorScheme();
     const isDarkMode = colorScheme === 'dark';
 
@@ -170,32 +170,6 @@ export const PlaceholderScreen: React.FC = () => {
             </View>
 
             <View style={styles.bottomContainer}>
-                {isSharing && location && (
-                    <View style={styles.coordsContainer}>
-                        <Text
-                            style={[
-                                styles.coordsLabel,
-                                isDarkMode
-                                    ? styles.textMutedDark
-                                    : styles.textMutedLight,
-                            ]}
-                        >
-                            Your coordinates
-                        </Text>
-                        <Text
-                            style={[
-                                styles.coordsValue,
-                                isDarkMode
-                                    ? styles.textPrimaryDark
-                                    : styles.textPrimaryLight,
-                            ]}
-                        >
-                            {location.coords.latitude.toFixed(5)},{' '}
-                            {location.coords.longitude.toFixed(5)}
-                        </Text>
-                    </View>
-                )}
-
                 {locationError && (
                     <Text style={styles.errorText}>{locationError}</Text>
                 )}
@@ -270,7 +244,7 @@ const styles = StyleSheet.create({
     },
     bottomContainer: {
         alignItems: 'center',
-        marginBottom: 12,
+        marginBottom: 50,
         minHeight: 40,
     },
     coordsContainer: {

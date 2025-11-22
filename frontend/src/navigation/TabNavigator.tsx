@@ -4,7 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { BlurView } from 'expo-blur';
 import { HomeScreen } from '../screens/HomeScreen';
 
-import { PlaceholderScreen } from '../screens/PlaceholderScreen';
+import { LocationTrackerScreen } from '../screens/LocationTrackerScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -64,7 +64,7 @@ export const TabNavigator = () => {
             })}
         >
             <Tab.Screen name="Home" component={HomeScreen} />
-            <Tab.Screen name="Settings" component={PlaceholderScreen} />
+            <Tab.Screen name="Settings" component={LocationTrackerScreen} />
         </Tab.Navigator>
     );
 };
