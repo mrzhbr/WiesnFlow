@@ -461,37 +461,32 @@ type CustomSliderProps = {
 };
 
 const CustomSlider: React.FC<CustomSliderProps> = ({ label, value, onValueChange, isDark, leftLabel, rightLabel }) => {
-	const [width, setWidth] = useState(0);
+	const widthRef = useRef(0);
+    const startValueRef = useRef(0);
+
 	const panResponder = useRef(
 		PanResponder.create({
 			onStartShouldSetPanResponder: () => true,
 			onMoveShouldSetPanResponder: () => true,
-			onPanResponderGrant: (evt) => {
-				// Handle tap? For now just drag
+			onPanResponderGrant: (evt, gestureState) => {
+                const width = widthRef.current;
+                if (width > 0) {
+                    const locationX = evt.nativeEvent.locationX;
+                    const newValue = Math.max(0, Math.min(1, locationX / width));
+                    startValueRef.current = newValue;
+                    onValueChange(newValue);
+                }
 			},
 			onPanResponderMove: (evt, gestureState) => {
+				const width = widthRef.current;
 				if (width > 0) {
-					// Simple delta calculation could be improved, 
-					// but typically we need absolute position or start value.
-					// A simple approximation for a custom slider without external libs:
-					// We really need to know the position of the slider on screen to map touch to value,
-					// or just handle relative drags.
-					// Let's do relative drag from current value.
+                    const delta = gestureState.dx / width;
+                    const newValue = Math.max(0, Math.min(1, startValueRef.current + delta));
+                    onValueChange(newValue);
 				}
 			},
-			// Let's stick to a simpler approach: Tap to set approximately, or use a discrete 5-step picker that looks like a slider
 		})
 	).current;
-    
-    // Better Slider Implementation
-    // We track layout. When user presses, we calculate percentage.
-    const handlePress = (evt: any) => {
-        const locationX = evt.nativeEvent.locationX;
-        if (width > 0) {
-            const newValue = Math.max(0, Math.min(1, locationX / width));
-            onValueChange(newValue);
-        }
-    };
 
     return (
         <View style={styles.sliderContainer}>
@@ -501,13 +496,14 @@ const CustomSlider: React.FC<CustomSliderProps> = ({ label, value, onValueChange
                     {(value * 100).toFixed(0)}%
                 </Text>
             </View>
-            <Pressable 
+            <View 
                 style={styles.sliderTrackContainer} 
-                onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-                onPress={handlePress}
+                onLayout={(e) => { widthRef.current = e.nativeEvent.layout.width; }}
+                {...panResponder.panHandlers}
             >
-                <View style={[styles.sliderTrack, { backgroundColor: isDark ? '#334155' : '#cbd5e1' }]} />
+                <View pointerEvents="none" style={[styles.sliderTrack, { backgroundColor: isDark ? '#334155' : '#cbd5e1' }]} />
                 <View 
+                    pointerEvents="none"
                     style={[
                         styles.sliderFill, 
                         { 
@@ -517,6 +513,7 @@ const CustomSlider: React.FC<CustomSliderProps> = ({ label, value, onValueChange
                     ]} 
                 />
                 <View 
+                    pointerEvents="none"
                     style={[
                         styles.sliderThumb, 
                         { 
@@ -526,7 +523,7 @@ const CustomSlider: React.FC<CustomSliderProps> = ({ label, value, onValueChange
                         } 
                     ]} 
                 />
-            </Pressable>
+            </View>
             {(leftLabel || rightLabel) && (
                 <View style={styles.sliderLabelsRow}>
                     <Text style={[styles.sliderSideLabel, isDark ? styles.textMutedDark : styles.textMutedLight]}>
