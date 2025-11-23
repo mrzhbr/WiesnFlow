@@ -1754,7 +1754,7 @@ export const HomeScreen = () => {
           clearTimeout(manualPositionChangeTimeout.current);
         }
 
-        // Set timeout to check crowded tile after 10 seconds
+        // Set timeout to check crowded tile after 3 seconds
         manualPositionChangeTimeout.current = setTimeout(async () => {
           if (!coords || Object.keys(mapTileData).length === 0) {
             return;
@@ -1851,7 +1851,7 @@ export const HomeScreen = () => {
               );
             }
           }
-        }, 10000); // 10 seconds delay
+        }, 3000); // 3 seconds delay
       } catch (error) {
         console.error("[HomeScreen] Error saving position override:", error);
       }
@@ -2173,7 +2173,15 @@ export const HomeScreen = () => {
 
       const results = await Promise.all(requests);
       const flatResults = results.flat();
-      // Deduplicate based on tent_name
+
+      // Sort by score FIRST (low to high, smaller score is better)
+      flatResults.sort((a: any, b: any) => {
+        if (!a || !a.score) return 1;
+        if (!b || !b.score) return -1;
+        return a.score - b.score;
+      });
+
+      // Deduplicate based on tent_name, keeping the first occurrence (which has the best/lowest score after sorting)
       const uniqueResults = Array.from(
         new Map(flatResults.map((item) => [item.tent_name, item])).values()
       );
@@ -2195,8 +2203,12 @@ export const HomeScreen = () => {
           return newItem;
         });
 
-      // Sort by score (low to high)
-      enrichedResults.sort((a: any, b: any) => a.score - b.score);
+      // Final sort by score ONLY (low to high, smaller score is better)
+      enrichedResults.sort((a: any, b: any) => {
+        if (!a || !a.score) return 1;
+        if (!b || !b.score) return -1;
+        return a.score - b.score;
+      });
 
       if (mapRef.current) {
         mapRef.current.addMarkers(enrichedResults);
