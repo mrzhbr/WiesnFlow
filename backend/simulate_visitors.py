@@ -37,7 +37,7 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://wiesnflow.onrender.com")
 API_ENDPOINT = f"{API_BASE_URL}/position"
 
 # Simulation configuration
-NUM_VISITORS = 500
+NUM_VISITORS = 
 NUM_THREADS = 50
 UPDATE_INTERVAL_SECONDS = 60  # 1 minute
 SIMULATION_DURATION_MINUTES = None  # None = run indefinitely
