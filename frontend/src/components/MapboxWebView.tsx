@@ -393,6 +393,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
         };
         const API_BASE_URL = '${API_BASE_URL}';
         let tileIntensityMap = {};
+        let tileCountMap = {}; // Store raw counts for feature state updates
 
         mapboxgl.accessToken = '${accessToken}';
         const map = new mapboxgl.Map({
@@ -441,6 +442,9 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                 // Extract tiles from response (backend returns {tiles: {...}, tents: {...}})
                 const tiles = data.tiles || {};
                 
+                // Store raw counts
+                tileCountMap = { ...tiles };
+                
                 // Create a map of tile ID to count, then normalize to intensity (0-100)
                 tileIntensityMap = {};
                 
@@ -452,14 +456,37 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                 
                 // Convert counts to intensity (0-100 scale)
                 // If maxCount is 0, all intensities will be 0
+                const normalizer = Math.max(25, maxCount);
                 Object.keys(tiles).forEach(tileId => {
                     const count = tiles[tileId];
                     // Normalize to 0-100, with a minimum threshold to show some color
-                    const intensity = maxCount > 0 ? Math.min(100, (count / maxCount) * 100) : 0;
+                    const intensity = normalizer > 0 ? Math.min(100, (count / normalizer) * 100) : 0;
                     tileIntensityMap[tileId] = intensity;
                 });
                 
                 log('Fetched ' + Object.keys(tiles).length + ' tiles from API, max count: ' + maxCount);
+                
+                // Update feature states for heatmap (point source)
+                if (tilesGeoJSON && tilesGeoJSON.features) {
+                    tilesGeoJSON.features.forEach(feature => {
+                        const id = feature.properties.tileId;
+                        if (id) {
+                            const count = tiles[id] || 0;
+                            const normalizedDensity = normalizer > 0 ? count / normalizer : 0;
+                            
+                            map.setFeatureState(
+                                { source: 'oktoberfest-tiles', id: id },
+                                { density: count }
+                            );
+                            
+                            map.setFeatureState(
+                                { source: 'oktoberfest-points', id: id },
+                                { density: normalizedDensity }
+                            );
+                        }
+                    });
+                }
+                
                 updateTileColors();
             } catch (error) {
                 log('Error fetching tile data: ' + error.toString());
@@ -487,6 +514,35 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
 
             // Update the source data
             map.getSource('oktoberfest-tiles').setData(updatedGeoJSON);
+            
+            // Also update feature states to ensure heatmap displays correctly
+            // This prevents feature states from being cleared when setData() is called
+            if (tilesGeoJSON && tilesGeoJSON.features && tileCountMap) {
+                // Find max count for normalization
+                let maxCount = 0;
+                Object.values(tileCountMap).forEach(count => {
+                    if (count > maxCount) maxCount = count;
+                });
+                const normalizer = Math.max(25, maxCount);
+                
+                tilesGeoJSON.features.forEach(feature => {
+                    const id = feature.properties.tileId;
+                    if (id && tileCountMap[id] !== undefined) {
+                        const count = tileCountMap[id] || 0;
+                        const normalizedDensity = normalizer > 0 ? count / normalizer : 0;
+                        
+                        map.setFeatureState(
+                            { source: 'oktoberfest-tiles', id: id },
+                            { density: count }
+                        );
+                        
+                        map.setFeatureState(
+                            { source: 'oktoberfest-points', id: id },
+                            { density: normalizedDensity }
+                        );
+                    }
+                });
+            }
         }
 
         function addTiles() {
@@ -598,7 +654,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                             'line-join': 'round'
                         },
                         paint: {
-                            'line-width': 4,
+                            'line-width': 12,
                             'line-color': [
                                 'case',
                                 ['boolean', ['get', 'isAvailable'], false],
@@ -1546,6 +1602,9 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                     log('Updating tile data with ' + Object.keys(data.tiles).length + ' entries');
                     const incomingTiles = data.tiles;
                     
+                    // Store raw counts
+                    tileCountMap = { ...incomingTiles };
+                    
                     // Find max count for normalization
                     let maxCount = 0;
                     Object.values(incomingTiles).forEach(count => {
@@ -1556,6 +1615,14 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                     const normalizer = Math.max(25, maxCount);
                     
                     log('Max count: ' + maxCount + ', Normalizer: ' + normalizer);
+                    
+                    // Update tileIntensityMap to prevent WebView's internal fetchTileData from overwriting
+                    tileIntensityMap = {};
+                    Object.keys(incomingTiles).forEach(tileId => {
+                        const count = incomingTiles[tileId];
+                        const intensity = normalizer > 0 ? Math.min(100, (count / normalizer) * 100) : 0;
+                        tileIntensityMap[tileId] = intensity;
+                    });
                     
                     // Iterate over all features in the source to ensure we update everything (including resetting to 0)
                     if (tilesGeoJSON && tilesGeoJSON.features) {
@@ -1583,6 +1650,10 @@ export const MapboxWebView = forwardRef<MapboxWebViewRef, MapboxWebViewProps>(
                              }
                          });
                     }
+                    
+                    // Also call updateTileColors to ensure polygon source is updated
+                    // This keeps both update mechanisms in sync
+                    updateTileColors();
                 } else if (data.type === 'updateMarkers') {
                     log('Updating markers with ' + (data.markers ? data.markers.length : 0) + ' items');
                     addMarkers(data.markers);

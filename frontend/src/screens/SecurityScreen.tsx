@@ -1,5 +1,11 @@
 import React, { useRef, useCallback, useState, useMemo } from "react";
-import { View, StyleSheet, useColorScheme, Text } from "react-native";
+import {
+  View,
+  StyleSheet,
+  useColorScheme,
+  Text,
+  ActivityIndicator,
+} from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   MapboxWebView,
@@ -18,6 +24,7 @@ export const SecurityScreen = () => {
   const colorScheme = useColorScheme();
   const mapRef = useRef<MapboxWebViewRef>(null);
   const [tileData, setTileData] = useState<Record<string, number>>({});
+  const [isLoadingHeatmap, setIsLoadingHeatmap] = useState(false);
 
   // Combine all markers from entrances and U-Bahn stations
   const markers: Marker[] = useMemo(
@@ -40,6 +47,7 @@ export const SecurityScreen = () => {
   };
 
   const fetchMapData = useCallback(async () => {
+    setIsLoadingHeatmap(true);
     try {
       const response = await fetch(`${API_BASE_URL}/map`);
       if (!response.ok) {
@@ -276,6 +284,8 @@ export const SecurityScreen = () => {
       }
     } catch (error) {
       // Silently handle errors
+    } finally {
+      setIsLoadingHeatmap(false);
     }
   }, []);
 
@@ -335,6 +345,23 @@ export const SecurityScreen = () => {
           Suggested Routes
         </Text>
       </View>
+
+      {/* Loading Overlay */}
+      {isLoadingHeatmap && (
+        <View
+          style={[
+            styles.loadingOverlay,
+            colorScheme === "dark"
+              ? styles.loadingOverlayDark
+              : styles.loadingOverlayLight,
+          ]}
+        >
+          <ActivityIndicator
+            size="small"
+            color={colorScheme === "dark" ? "#e5e7eb" : "#1f2937"}
+          />
+        </View>
+      )}
     </View>
   );
 };
@@ -383,5 +410,21 @@ const styles = StyleSheet.create({
   },
   textDark: {
     color: "#1f2937",
+  },
+  loadingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    pointerEvents: "none",
+  },
+  loadingOverlayLight: {
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
+  },
+  loadingOverlayDark: {
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
   },
 });
