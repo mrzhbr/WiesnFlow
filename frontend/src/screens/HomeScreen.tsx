@@ -2567,24 +2567,19 @@ export const HomeScreen = () => {
       />
 
       {positionOverride && (
-        <View
-          style={[
-            styles.overrideBanner,
-            colorScheme === "dark"
-              ? styles.overrideBannerDark
-              : styles.overrideBannerLight,
-          ]}
-        >
+        <View style={styles.overrideBanner}>
           <View style={styles.overrideBannerContent}>
             <Ionicons
               name="navigate"
-              size={16}
-              color={colorScheme === "dark" ? "#fbbf24" : "#f59e0b"}
+              size={12}
+              color={colorScheme === "dark" ? "#6b7280" : "#9ca3af"}
             />
             <Text
               style={[
                 styles.overrideBannerText,
-                colorScheme === "dark" ? styles.textLight : styles.textDark,
+                colorScheme === "dark"
+                  ? styles.overrideBannerTextDark
+                  : styles.overrideBannerTextLight,
               ]}
             >
               Demo Mode: Position Override Active
@@ -2596,8 +2591,8 @@ export const HomeScreen = () => {
           >
             <Ionicons
               name="close-circle"
-              size={20}
-              color={colorScheme === "dark" ? "#9ca3af" : "#6b7280"}
+              size={16}
+              color={colorScheme === "dark" ? "#6b7280" : "#9ca3af"}
             />
           </Pressable>
         </View>
@@ -3388,35 +3383,26 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  overrideBannerLight: {
-    backgroundColor: "#fef3c7",
-    borderWidth: 1,
-    borderColor: "#fbbf24",
-  },
-  overrideBannerDark: {
-    backgroundColor: "#422006",
-    borderWidth: 1,
-    borderColor: "#f59e0b",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   overrideBannerContent: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     flex: 1,
   },
   overrideBannerText: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 11,
+    fontWeight: "400",
     flex: 1,
+    opacity: 0.6,
+  },
+  overrideBannerTextLight: {
+    color: "#6b7280",
+  },
+  overrideBannerTextDark: {
+    color: "#9ca3af",
   },
   overrideBannerButton: {
     padding: 4,

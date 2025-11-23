@@ -2,8 +2,8 @@ import { ExpoConfig, ConfigContext } from 'expo/config';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: 'react-native-mapbox-app',
-  slug: 'react-native-mapbox-app',
+  name: 'WiesnFlow',
+  slug: 'wiesnflow',
   version: '1.0.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
